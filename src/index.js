@@ -6,6 +6,8 @@ for (const key of ['DISCORD_BOT_TOKEN','DISCORD_APPLICATION_ID','DISCORD_GUILD_I
 const app = express(); app.use(express.json({limit:'256kb'}));
 const client = new Client({intents:[GatewayIntentBits.Guilds]});
 const state={online:false,map:'unknown',players:0,round:'waiting',lastEvent:null};
+client.on('debug', message => console.log('[Discord debug]', message));
+client.on('warn', message => console.warn('[Discord warn]', message));
 const commands=[new SlashCommandBuilder().setName('status').setDescription('Show Notorious server status'),new SlashCommandBuilder().setName('players').setDescription('Show current player count'),new SlashCommandBuilder().setName('announce').setDescription('Send a server announcement').addStringOption(o=>o.setName('message').setDescription('Announcement text').setRequired(true)).setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)].map(c=>c.toJSON());
 const clean=(v,f='Unknown')=>String(v??f).slice(0,1000);
 function embed(e){const type=clean(e.type,'server_event');const colors={round_end:0xff46d2,round_start:0x5cb8ff,player_join:0x64eb91,player_leave:0xffb347,clan:0x9b42ff};const x=new EmbedBuilder().setColor(colors[type]??0x5cb8ff).setTitle(`NOTORIOUS // ${type.replaceAll('_',' ').toUpperCase()}`).setTimestamp();for(const[k,v]of Object.entries(e))if(k!=='type'&&v!=null)x.addFields({name:clean(k).toUpperCase(),value:clean(v),inline:true});return x;}
@@ -15,6 +17,9 @@ app.post('/gmod/event',async(req,r)=>{if(req.get('x-notorious-secret')!==process
 client.once('ready',async()=>{state.online=true;const rest=new REST({version:'10'}).setToken(process.env.DISCORD_BOT_TOKEN);await rest.put(Routes.applicationGuildCommands(process.env.DISCORD_APPLICATION_ID,process.env.DISCORD_GUILD_ID),{body:commands});console.log(`Notorious bot online as ${client.user.tag}`);});
 client.on('interactionCreate',async i=>{if(!i.isChatInputCommand())return;if(i.commandName==='status')return i.reply({ephemeral:true,embeds:[new EmbedBuilder().setColor(0x5cb8ff).setTitle('NOTORIOUS // SERVER STATUS').addFields({name:'STATUS',value:state.online?'Online':'Unknown',inline:true},{name:'MAP',value:clean(state.map),inline:true},{name:'PLAYERS',value:String(state.players),inline:true},{name:'ROUND',value:clean(state.round),inline:true})]});if(i.commandName==='players')return i.reply({ephemeral:true,content:`Notorious currently reports **${state.players}** players.`});if(i.commandName==='announce')return i.reply({content:`📢 **Notorious announcement:** ${i.options.getString('message')}`});});
 client.on('error', error => console.error('[Discord] client error:', error));
+setTimeout(() => {
+  if (!state.online) console.error('[Discord] gateway did not become ready within 15 seconds. Check that DISCORD_BOT_TOKEN is the Bot token, not the client secret or public key.');
+}, 15000);
 client.login(process.env.DISCORD_BOT_TOKEN).catch(error => {
   console.error('[Discord] login failed:', error?.message || error);
   process.exitCode = 1;
