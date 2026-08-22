@@ -18,6 +18,16 @@ client.on('error', error => console.error('[Discord] client error:', error));
 client.on('shardError', error => console.error('[Discord] gateway error:', error?.message || error));
 client.on('shardDisconnect', (event, shardId) => console.error(`[Discord] gateway disconnected (shard ${shardId}, code ${event?.code ?? 'unknown'})`));
 client.on('invalidated', () => console.error('[Discord] session invalidated; the token may have been reset or revoked.'));
+async function validateDiscordToken() {
+  const rest = new REST({version:'10'}).setToken(process.env.DISCORD_BOT_TOKEN);
+  try {
+    const user = await rest.get(Routes.user());
+    console.log(`[Discord] token accepted for ${user.username}#${user.discriminator || '0000'}; opening Gateway.`);
+  } catch (error) {
+    console.error('[Discord] token validation failed:', error?.status ? `HTTP ${error.status}` : (error?.message || error));
+    process.exit(1);
+  }
+}
 setTimeout(() => {
   if (!state.online) {
     console.error('[Discord] gateway did not become ready within 20 seconds. Config present:', {
@@ -29,10 +39,10 @@ setTimeout(() => {
     process.exit(1);
   }
 }, 20000);
-client.login(process.env.DISCORD_BOT_TOKEN).then(() => {
+validateDiscordToken().then(() => client.login(process.env.DISCORD_BOT_TOKEN)).then(() => {
   console.log('[Discord] login accepted; waiting for READY.');
 }).catch(error => {
   console.error('[Discord] login failed:', error?.message || error);
-  process.exitCode = 1;
+  process.exit(1);
 });
 app.listen(Number(process.env.PORT||3000),()=>console.log(`HTTP bridge listening on ${process.env.PORT||3000}`));
