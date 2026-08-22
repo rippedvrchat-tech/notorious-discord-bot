@@ -1,7 +1,9 @@
 import 'dotenv/config';
+import dns from 'node:dns';
 import express from 'express';
 import { Client, GatewayIntentBits, EmbedBuilder, REST, Routes, SlashCommandBuilder, PermissionFlagsBits } from 'discord.js';
 
+dns.setDefaultResultOrder('ipv4first');
 for (const key of ['DISCORD_BOT_TOKEN','DISCORD_APPLICATION_ID','DISCORD_GUILD_ID','G2D_SHARED_SECRET']) if (!process.env[key]) throw new Error(`Missing ${key}`);
 const app = express(); app.use(express.json({limit:'256kb'}));
 const client = new Client({intents:[GatewayIntentBits.Guilds]});
