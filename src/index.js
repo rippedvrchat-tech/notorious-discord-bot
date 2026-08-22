@@ -18,31 +18,6 @@ client.on('error', error => console.error('[Discord] client error:', error));
 client.on('shardError', error => console.error('[Discord] gateway error:', error?.message || error));
 client.on('shardDisconnect', (event, shardId) => console.error(`[Discord] gateway disconnected (shard ${shardId}, code ${event?.code ?? 'unknown'})`));
 client.on('invalidated', () => console.error('[Discord] session invalidated; the token may have been reset or revoked.'));
-async function validateDiscordToken() {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 10000);
-  try {
-    const response = await fetch('https://discord.com/api/v10/users/@me', {
-      headers: {Authorization: `Bot ${process.env.DISCORD_BOT_TOKEN}`},
-      signal: controller.signal
-    });
-    if (!response.ok) {
-      if (response.status === 429) {
-        console.warn('[Discord] API rate-limited the validation request; continuing to Gateway login.');
-        return;
-      }
-      console.error('[Discord] token validation failed:', `HTTP ${response.status}`);
-      process.exit(1);
-    }
-    const user = await response.json();
-    console.log(`[Discord] token accepted for ${user.username}#${user.discriminator || '0000'}; opening Gateway.`);
-  } catch (error) {
-    console.error('[Discord] Discord API request failed:', error?.name === 'AbortError' ? 'timed out after 10 seconds' : (error?.message || error));
-    process.exit(1);
-  } finally {
-    clearTimeout(timeout);
-  }
-}
 setTimeout(() => {
   if (!state.online) {
     console.error('[Discord] gateway did not become ready within 20 seconds. Config present:', {
@@ -54,7 +29,7 @@ setTimeout(() => {
     process.exit(1);
   }
 }, 20000);
-validateDiscordToken().then(() => client.login(process.env.DISCORD_BOT_TOKEN)).then(() => {
+client.login(process.env.DISCORD_BOT_TOKEN).then(() => {
   console.log('[Discord] login accepted; waiting for READY.');
 }).catch(error => {
   console.error('[Discord] login failed:', error?.message || error);
