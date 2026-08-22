@@ -15,6 +15,11 @@ app.post('/gmod/event',async(req,r)=>{if(req.get('x-notorious-secret')!==process
 client.once('ready',async()=>{state.online=true;const rest=new REST({version:'10'}).setToken(process.env.DISCORD_BOT_TOKEN);await rest.put(Routes.applicationGuildCommands(process.env.DISCORD_APPLICATION_ID,process.env.DISCORD_GUILD_ID),{body:commands});console.log(`Notorious bot online as ${client.user.tag}`);});
 client.on('interactionCreate',async i=>{if(!i.isChatInputCommand())return;if(i.commandName==='status')return i.reply({ephemeral:true,embeds:[new EmbedBuilder().setColor(0x5cb8ff).setTitle('NOTORIOUS // SERVER STATUS').addFields({name:'STATUS',value:state.online?'Online':'Unknown',inline:true},{name:'MAP',value:clean(state.map),inline:true},{name:'PLAYERS',value:String(state.players),inline:true},{name:'ROUND',value:clean(state.round),inline:true})]});if(i.commandName==='players')return i.reply({ephemeral:true,content:`Notorious currently reports **${state.players}** players.`});if(i.commandName==='announce')return i.reply({content:`📢 **Notorious announcement:** ${i.options.getString('message')}`});});
 client.on('error', error => console.error('[Discord] client error:', error));
+client.on('debug', message => {
+  if (!/provided token/i.test(message)) console.log('[Discord] debug:', message);
+});
+client.on('shardReady', shardId => console.log(`[Discord] shard ${shardId} is ready.`));
+client.on('shardReconnecting', shardId => console.log(`[Discord] shard ${shardId} is reconnecting.`));
 client.on('shardError', error => console.error('[Discord] gateway error:', error?.message || error));
 client.on('shardDisconnect', (event, shardId) => console.error(`[Discord] gateway disconnected (shard ${shardId}, code ${event?.code ?? 'unknown'})`));
 client.on('invalidated', () => console.error('[Discord] session invalidated; the token may have been reset or revoked.'));
