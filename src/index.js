@@ -19,13 +19,24 @@ client.on('shardError', error => console.error('[Discord] gateway error:', error
 client.on('shardDisconnect', (event, shardId) => console.error(`[Discord] gateway disconnected (shard ${shardId}, code ${event?.code ?? 'unknown'})`));
 client.on('invalidated', () => console.error('[Discord] session invalidated; the token may have been reset or revoked.'));
 async function validateDiscordToken() {
-  const rest = new REST({version:'10'}).setToken(process.env.DISCORD_BOT_TOKEN);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
   try {
-    const user = await rest.get(Routes.user());
+    const response = await fetch('https://discord.com/api/v10/users/@me', {
+      headers: {Authorization: `Bot ${process.env.DISCORD_BOT_TOKEN}`},
+      signal: controller.signal
+    });
+    if (!response.ok) {
+      console.error('[Discord] token validation failed:', `HTTP ${response.status}`);
+      process.exit(1);
+    }
+    const user = await response.json();
     console.log(`[Discord] token accepted for ${user.username}#${user.discriminator || '0000'}; opening Gateway.`);
   } catch (error) {
-    console.error('[Discord] token validation failed:', error?.status ? `HTTP ${error.status}` : (error?.message || error));
+    console.error('[Discord] Discord API request failed:', error?.name === 'AbortError' ? 'timed out after 10 seconds' : (error?.message || error));
     process.exit(1);
+  } finally {
+    clearTimeout(timeout);
   }
 }
 setTimeout(() => {
