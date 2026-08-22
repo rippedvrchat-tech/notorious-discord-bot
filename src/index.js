@@ -27,6 +27,10 @@ async function validateDiscordToken() {
       signal: controller.signal
     });
     if (!response.ok) {
+      if (response.status === 429) {
+        console.warn('[Discord] API rate-limited the validation request; continuing to Gateway login.');
+        return;
+      }
       console.error('[Discord] token validation failed:', `HTTP ${response.status}`);
       process.exit(1);
     }
