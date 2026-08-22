@@ -4,42 +4,33 @@ import express from 'express';
 import { Client, GatewayIntentBits, EmbedBuilder, REST, Routes, SlashCommandBuilder, PermissionFlagsBits } from 'discord.js';
 
 dns.setDefaultResultOrder('ipv4first');
-for (const key of ['DISCORD_BOT_TOKEN','DISCORD_APPLICATION_ID','DISCORD_GUILD_ID','G2D_SHARED_SECRET']) if (!process.env[key]) throw new Error(`Missing ${key}`);
-const app = express(); app.use(express.json({limit:'256kb'}));
-const client = new Client({intents:[GatewayIntentBits.Guilds]});
-const state={online:false,map:'unknown',players:0,round:'waiting',lastEvent:null};
-const commands=[new SlashCommandBuilder().setName('status').setDescription('Show Notorious server status'),new SlashCommandBuilder().setName('players').setDescription('Show current player count'),new SlashCommandBuilder().setName('announce').setDescription('Send a server announcement').addStringOption(o=>o.setName('message').setDescription('Announcement text').setRequired(true)).setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)].map(c=>c.toJSON());
-const clean=(v,f='Unknown')=>String(v??f).slice(0,1000);
-function embed(e){const type=clean(e.type,'server_event');const colors={round_end:0xff46d2,round_start:0x5cb8ff,player_join:0x64eb91,player_leave:0xffb347,clan:0x9b42ff};const x=new EmbedBuilder().setColor(colors[type]??0x5cb8ff).setTitle(`NOTORIOUS // ${type.replaceAll('_',' ').toUpperCase()}`).setTimestamp();for(const[k,v]of Object.entries(e))if(k!=='type'&&v!=null)x.addFields({name:clean(k).toUpperCase(),value:clean(v),inline:true});return x;}
-async function logEvent(e){state.lastEvent=new Date().toISOString();if(!process.env.DISCORD_LOG_CHANNEL_ID)return;const c=await client.channels.fetch(process.env.DISCORD_LOG_CHANNEL_ID).catch(()=>null);if(c?.isTextBased())await c.send({embeds:[embed(e)]}).catch(console.error);}
-app.get('/health',(_,r)=>r.json({ok:true,discord:state.online,server:state}));
-app.post('/gmod/event',async(req,r)=>{if(req.get('x-notorious-secret')!==process.env.G2D_SHARED_SECRET)return r.status(401).json({error:'unauthorized'});const e=req.body&&typeof req.body==='object'?req.body:{};if(e.type==='status')Object.assign(state,{online:true,map:e.map??state.map,players:e.players??state.players,round:e.round??state.round});await logEvent(e);r.json({ok:true});});
-client.once('ready',async()=>{state.online=true;const rest=new REST({version:'10'}).setToken(process.env.DISCORD_BOT_TOKEN);await rest.put(Routes.applicationGuildCommands(process.env.DISCORD_APPLICATION_ID,process.env.DISCORD_GUILD_ID),{body:commands});console.log(`Notorious bot online as ${client.user.tag}`);});
-client.on('interactionCreate',async i=>{if(!i.isChatInputCommand())return;if(i.commandName==='status')return i.reply({ephemeral:true,embeds:[new EmbedBuilder().setColor(0x5cb8ff).setTitle('NOTORIOUS // SERVER STATUS').addFields({name:'STATUS',value:state.online?'Online':'Unknown',inline:true},{name:'MAP',value:clean(state.map),inline:true},{name:'PLAYERS',value:String(state.players),inline:true},{name:'ROUND',value:clean(state.round),inline:true})]});if(i.commandName==='players')return i.reply({ephemeral:true,content:`Notorious currently reports **${state.players}** players.`});if(i.commandName==='announce')return i.reply({content:`📢 **Notorious announcement:** ${i.options.getString('message')}`});});
-client.on('error', error => console.error('[Discord] client error:', error));
-client.on('debug', message => {
-  if (!/provided token/i.test(message)) console.log('[Discord] debug:', message);
-});
-client.on('shardReady', shardId => console.log(`[Discord] shard ${shardId} is ready.`));
-client.on('shardReconnecting', shardId => console.log(`[Discord] shard ${shardId} is reconnecting.`));
-client.on('shardError', error => console.error('[Discord] gateway error:', error?.message || error));
-client.on('shardDisconnect', (event, shardId) => console.error(`[Discord] gateway disconnected (shard ${shardId}, code ${event?.code ?? 'unknown'})`));
-client.on('invalidated', () => console.error('[Discord] session invalidated; the token may have been reset or revoked.'));
-setTimeout(() => {
-  if (!state.online) {
-    console.error('[Discord] gateway did not become ready within 20 seconds. Config present:', {
-      botToken: Boolean(process.env.DISCORD_BOT_TOKEN),
-      applicationId: Boolean(process.env.DISCORD_APPLICATION_ID),
-      guildId: Boolean(process.env.DISCORD_GUILD_ID),
-      sharedSecret: Boolean(process.env.G2D_SHARED_SECRET)
-    });
-    process.exit(1);
-  }
-}, 20000);
-client.login(process.env.DISCORD_BOT_TOKEN).then(() => {
-  console.log('[Discord] login accepted; waiting for READY.');
-}).catch(error => {
-  console.error('[Discord] login failed:', error?.message || error);
-  process.exit(1);
-});
-app.listen(Number(process.env.PORT||3000),()=>console.log(`HTTP bridge listening on ${process.env.PORT||3000}`));
+for (const key of ['DISCORD_BOT_TOKEN', 'DISCORD_APPLICATION_ID', 'DISCORD_GUILD_ID', 'G2D_SHARED_SECRET']) if (!process.env[key]) throw new Error(`Missing ${key}`);
+const app = express(); app.use(express.json({ limit: '256kb' }));
+const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+const startedAt = Date.now();
+const state = { online: false, map: 'unknown', players: 0, round: 'waiting', lastEvent: null, lastEventType: null };
+const blue = 0x5cb8ff, pink = 0xff46d2;
+const commands = [
+  new SlashCommandBuilder().setName('status').setDescription('Show the live Notorious server dashboard'),
+  new SlashCommandBuilder().setName('players').setDescription('Show the current player count and server state'),
+  new SlashCommandBuilder().setName('map').setDescription('Show the current map'),
+  new SlashCommandBuilder().setName('round').setDescription('Show the current Pill Pack round state'),
+  new SlashCommandBuilder().setName('uptime').setDescription('Show bot and bridge uptime'),
+  new SlashCommandBuilder().setName('help').setDescription('Show every Notorious bot command'),
+  new SlashCommandBuilder().setName('announce').setDescription('Send an announcement to the log channel').addStringOption(o => o.setName('message').setDescription('Announcement text').setMaxLength(1000).setRequired(true)).setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
+  new SlashCommandBuilder().setName('serverinfo').setDescription('Show Notorious integration diagnostics').setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+].map(c => c.toJSON());
+const clean = (v, f = 'Unknown') => String(v ?? f).slice(0, 1000);
+const duration = ms => { const t = Math.floor(ms / 1000), h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), s = t % 60; return `${h}h ${m}m ${s}s`; };
+function statusEmbed() { return new EmbedBuilder().setColor(state.online ? blue : 0x777b8c).setTitle('NOTORIOUS // LIVE SERVER').setDescription(state.online ? 'Pill Pack is connected to the Notorious bridge.' : 'The Discord bot is online, but the game bridge has not reported in yet.').addFields({ name: 'STATUS', value: state.online ? '🟢 Online' : '🟡 Waiting', inline: true }, { name: 'PLAYERS', value: `**${state.players}**`, inline: true }, { name: 'MAP', value: `\`${clean(state.map)}\``, inline: true }, { name: 'ROUND', value: `\`${clean(state.round)}\``, inline: true }, { name: 'LAST SIGNAL', value: state.lastEvent ? `<t:${Math.floor(new Date(state.lastEvent).getTime() / 1000)}:R>` : 'No signal yet', inline: true }, { name: 'BOT UPTIME', value: duration(Date.now() - startedAt), inline: true }).setFooter({ text: 'NOTORIOUS // blue hour protocol' }).setTimestamp(); }
+function eventEmbed(event) { const type = clean(event.type, 'server_event'); const colors = { round_end: pink, round_start: blue, player_join: 0x64eb91, player_leave: 0xffb347, player_death: 0xff4f75, clan: 0x9b42ff }; const e = new EmbedBuilder().setColor(colors[type] ?? blue).setTitle(`NOTORIOUS // ${type.replaceAll('_', ' ').toUpperCase()}`).setTimestamp(); for (const [k, v] of Object.entries(event)) if (k !== 'type' && v != null) e.addFields({ name: clean(k).toUpperCase(), value: clean(v), inline: true }); return e; }
+async function logEvent(event) { state.lastEvent = new Date().toISOString(); state.lastEventType = clean(event.type, 'server_event'); const id = process.env.DISCORD_LOG_CHANNEL_ID; if (!id || !client.isReady()) return; const ch = await client.channels.fetch(id).catch(() => null); if (ch?.isTextBased()) await ch.send({ embeds: [eventEmbed(event)] }).catch(err => console.error('[Discord] log send failed:', err.message)); }
+app.get('/health', (_, r) => r.json({ ok: true, discord: state.online, server: state, uptimeSeconds: Math.floor((Date.now() - startedAt) / 1000) }));
+app.post('/gmod/event', async (req, r) => { if (req.get('x-notorious-secret') !== process.env.G2D_SHARED_SECRET) return r.status(401).json({ error: 'unauthorized' }); const e = req.body && typeof req.body === 'object' ? req.body : {}; if (e.type === 'status') Object.assign(state, { online: true, map: e.map ?? state.map, players: Number(e.players ?? state.players), round: e.round ?? state.round }); await logEvent(e); r.json({ ok: true, received: clean(e.type, 'server_event') }); });
+async function registerCommands() { const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_BOT_TOKEN); try { await rest.put(Routes.applicationGuildCommands(process.env.DISCORD_APPLICATION_ID, process.env.DISCORD_GUILD_ID), { body: commands }); console.log(`[Discord] registered ${commands.length} guild commands.`); } catch (err) { console.error('[Discord] command registration failed:', err?.message || err); } }
+client.once('ready', async () => { state.online = true; console.log(`Notorious bot online as ${client.user.tag}`); await registerCommands(); });
+client.on('interactionCreate', async i => { if (!i.isChatInputCommand()) return; const n = i.commandName; if (n === 'status') return i.reply({ embeds: [statusEmbed()] }); if (n === 'players') return i.reply({ embeds: [new EmbedBuilder().setColor(blue).setTitle('NOTORIOUS // PLAYER PULSE').setDescription(`There are **${state.players}** players connected on **${clean(state.map)}**.`).addFields({ name: 'ROUND', value: clean(state.round), inline: true }, { name: 'SIGNAL', value: state.lastEvent ? 'Live bridge' : 'Awaiting bridge', inline: true }).setTimestamp()] }); if (n === 'map') return i.reply({ content: `🗺️ The current Notorious map is **${clean(state.map)}**.` }); if (n === 'round') return i.reply({ content: `🎭 Current Pill Pack round state: **${clean(state.round)}**.` }); if (n === 'uptime') return i.reply({ content: `⏱️ Bot uptime: **${duration(Date.now() - startedAt)}**\nBridge last signal: **${state.lastEvent ? new Date(state.lastEvent).toLocaleString() : 'none'}**.` }); if (n === 'help') return i.reply({ embeds: [new EmbedBuilder().setColor(pink).setTitle('NOTORIOUS // COMMAND DECK').setDescription('Live tools for the Notorious Pill Pack community.').addFields({ name: 'LIVE', value: '`/status`  `/players`  `/map`  `/round`  `/uptime`' }, { name: 'COMMUNITY', value: '`/help`  `/announce`' }, { name: 'STAFF', value: '`/serverinfo` — integration diagnostics' }).setFooter({ text: 'More systems coming online soon.' })] }); if (n === 'serverinfo') return i.reply({ ephemeral: true, embeds: [new EmbedBuilder().setColor(blue).setTitle('NOTORIOUS // INTEGRATION DIAGNOSTICS').addFields({ name: 'DISCORD', value: client.isReady() ? 'Connected' : 'Offline', inline: true }, { name: 'GMOD BRIDGE', value: state.lastEvent ? 'Receiving signals' : 'No signals', inline: true }, { name: 'LAST EVENT', value: clean(state.lastEventType, 'none'), inline: true }, { name: 'MAP', value: clean(state.map), inline: true }, { name: 'PLAYERS', value: String(state.players), inline: true }, { name: 'ROUND', value: clean(state.round), inline: true })] }); if (n === 'announce') { const message = i.options.getString('message', true); await i.reply({ content: '✅ Announcement sent.', ephemeral: true }); await logEvent({ type: 'announcement', author: i.user.tag, message }); } });
+client.on('error', e => console.error('[Discord] client error:', e)); client.on('shardError', e => console.error('[Discord] gateway error:', e?.message || e)); client.on('shardReady', id => console.log(`[Discord] shard ${id} ready.`)); client.on('shardDisconnect', (e, id) => console.error(`[Discord] shard ${id} disconnected, code ${e?.code ?? 'unknown'}`));
+setTimeout(() => { if (!state.online) { console.error('[Discord] gateway timeout. Config present:', { botToken: Boolean(process.env.DISCORD_BOT_TOKEN), applicationId: Boolean(process.env.DISCORD_APPLICATION_ID), guildId: Boolean(process.env.DISCORD_GUILD_ID), sharedSecret: Boolean(process.env.G2D_SHARED_SECRET) }); process.exit(1); } }, 20000);
+client.login(process.env.DISCORD_BOT_TOKEN).catch(e => { console.error('[Discord] login failed:', e?.message || e); process.exit(1); });
+app.listen(Number(process.env.PORT || 3000), () => console.log(`HTTP bridge listening on ${process.env.PORT || 3000}`));
