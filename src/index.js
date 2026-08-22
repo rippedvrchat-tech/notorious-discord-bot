@@ -14,4 +14,9 @@ app.get('/health',(_,r)=>r.json({ok:true,discord:state.online,server:state}));
 app.post('/gmod/event',async(req,r)=>{if(req.get('x-notorious-secret')!==process.env.G2D_SHARED_SECRET)return r.status(401).json({error:'unauthorized'});const e=req.body&&typeof req.body==='object'?req.body:{};if(e.type==='status')Object.assign(state,{online:true,map:e.map??state.map,players:e.players??state.players,round:e.round??state.round});await logEvent(e);r.json({ok:true});});
 client.once('ready',async()=>{state.online=true;const rest=new REST({version:'10'}).setToken(process.env.DISCORD_BOT_TOKEN);await rest.put(Routes.applicationGuildCommands(process.env.DISCORD_APPLICATION_ID,process.env.DISCORD_GUILD_ID),{body:commands});console.log(`Notorious bot online as ${client.user.tag}`);});
 client.on('interactionCreate',async i=>{if(!i.isChatInputCommand())return;if(i.commandName==='status')return i.reply({ephemeral:true,embeds:[new EmbedBuilder().setColor(0x5cb8ff).setTitle('NOTORIOUS // SERVER STATUS').addFields({name:'STATUS',value:state.online?'Online':'Unknown',inline:true},{name:'MAP',value:clean(state.map),inline:true},{name:'PLAYERS',value:String(state.players),inline:true},{name:'ROUND',value:clean(state.round),inline:true})]});if(i.commandName==='players')return i.reply({ephemeral:true,content:`Notorious currently reports **${state.players}** players.`});if(i.commandName==='announce')return i.reply({content:`📢 **Notorious announcement:** ${i.options.getString('message')}`});});
-app.listen(Number(process.env.PORT||3000),()=>console.log(`HTTP bridge listening on ${process.env.PORT||3000}`));client.login(process.env.DISCORD_BOT_TOKEN);
+client.on('error', error => console.error('[Discord] client error:', error));
+client.login(process.env.DISCORD_BOT_TOKEN).catch(error => {
+  console.error('[Discord] login failed:', error?.message || error);
+  process.exitCode = 1;
+});
+app.listen(Number(process.env.PORT||3000),()=>console.log(`HTTP bridge listening on ${process.env.PORT||3000}`));
