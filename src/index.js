@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
 import {
+  ActivityType,
   Client,
   EmbedBuilder,
   GatewayIntentBits,
@@ -49,6 +50,11 @@ app.use(express.json({
 }));
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+const presence = {
+  status: 'online',
+  activity: 'Notorious PPHS',
+  lastPublishedAt: null
+};
 const startedAt = Date.now();
 const bridgeStaleMs = Math.max(45000, Number(process.env.GMOD_STALE_MS || 75000));
 const loginRetryMs = Math.max(15000, Number(process.env.DISCORD_RETRY_MS || 30000));
@@ -174,6 +180,18 @@ function discordConnectionText() {
   if (client.isReady()) return 'Connected by Gateway';
   if (discordHttp.enabled) return 'Connected by signed HTTP';
   return 'Reconnecting';
+}
+
+function publishPresence() {
+  if (!client.isReady() || !client.user) return false;
+  client.user.setPresence({
+    status: presence.status,
+    afk: false,
+    activities: [{ name: presence.activity, type: ActivityType.Playing }]
+  });
+  presence.lastPublishedAt = new Date().toISOString();
+  console.log(`[Discord] Presence set to online: ${presence.activity}.`);
+  return true;
 }
 
 function playerCountText() {
@@ -527,6 +545,7 @@ app.get('/', (_request, response) => response.json({
   ok: true,
   discord: discordIsConnected(),
   discordMode: client.isReady() ? 'gateway' : (discordHttp.enabled ? 'http' : 'waiting'),
+  presence: client.isReady() ? presence.status : 'unavailable without Gateway',
   gmod: bridgeIsLive()
 }));
 
@@ -535,6 +554,9 @@ app.get('/health', (_request, response) => response.json({
   configured: missingEnvironment().length === 0,
   discord: discordIsConnected(),
   discordMode: client.isReady() ? 'gateway' : (discordHttp.enabled ? 'http' : 'waiting'),
+  presence: client.isReady() ? presence.status : 'unavailable without Gateway',
+  presenceActivity: presence.activity,
+  presenceLastPublishedAt: presence.lastPublishedAt,
   httpInteractionsConfigured: discordHttp.enabled,
   lastInteractionAt: discordHttp.lastInteractionAt,
   gmod: bridgeIsLive(),
@@ -606,6 +628,7 @@ async function registerCommands() {
 
 client.on('clientReady', async () => {
   console.log(`[Discord] Connected as ${client.user.tag}.`);
+  publishPresence();
   await registerCommands();
 });
 
@@ -652,7 +675,10 @@ client.on('interactionCreate', async interaction => {
 
 client.on('error', error => console.error('[Discord] Client error:', error?.message || error));
 client.on('shardError', error => console.error('[Discord] Gateway error:', error?.message || error));
-client.on('shardReady', id => console.log(`[Discord] Shard ${id} ready.`));
+client.on('shardReady', id => {
+  console.log(`[Discord] Shard ${id} ready.`);
+  publishPresence();
+});
 client.on('shardDisconnect', (event, id) => console.error(`[Discord] Shard ${id} disconnected with code ${event?.code ?? 'unknown'}.`));
 
 let loginInProgress = false;
