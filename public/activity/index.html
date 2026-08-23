@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Notorious Live Activity</title>
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <main class="shell">
+      <header class="hero">
+        <div class="brand-mark">N</div>
+        <div>
+          <p class="eyebrow">NOTORIOUS SERVER NETWORK</p>
+          <h1>Notorious Live</h1>
+          <p class="subhead">Pill Pack Hide &amp; Seek, live from the server.</p>
+        </div>
+        <span id="connection" class="pill waiting">Connecting</span>
+      </header>
+
+      <section class="status-card">
+        <div class="status-heading">
+          <div>
+            <p class="eyebrow">LIVE TELEMETRY</p>
+            <h2 id="round">Waiting for server signal</h2>
+          </div>
+          <div id="pulse" class="pulse"></div>
+        </div>
+        <div class="stats">
+          <div><span>Players</span><strong id="players">0 / 0</strong></div>
+          <div><span>Map</span><strong id="map">unknown</strong></div>
+          <div><span>Bridge</span><strong id="bridge">Waiting</strong></div>
+        </div>
+        <p id="updated" class="updated">Checking the live GMod bridge...</p>
+      </section>
+
+      <section class="actions">
+        <a class="action primary" href="/join"><span>Join Server</span><small>Open Garry's Mod</small></a>
+        <a class="action" href="https://ogpill.xyz" target="_blank" rel="noreferrer"><span>Website</span><small>Visit ogpill.xyz</small></a>
+      </section>
+
+      <footer>Notorious PPHS <span>•</span> Live server activity</footer>
+    </main>
+    <script type="module" src="./activity.js"></script>
+  </body>
+</html>
