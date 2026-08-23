@@ -198,6 +198,10 @@ function playerCountText() {
   return bridge.maxPlayers > 0 ? `${bridge.players} / ${bridge.maxPlayers}` : String(bridge.players);
 }
 
+function currentMapName() {
+  return clean(bridge.map, 'unknown', 128);
+}
+
 function brandedEmbed({ title, description, color = COLORS.blue, image = ASSETS.identity }) {
   const embed = new EmbedBuilder()
     .setColor(color)
@@ -254,14 +258,16 @@ function playersEmbed() {
 }
 
 function mapEmbed() {
+  const map = currentMapName();
   return brandedEmbed({
     title: 'Current Map',
     description: bridgeIsLive()
-      ? `The server is currently running **${markdownSafe(bridge.map, 'unknown')}**.`
-      : `Last reported map: **${markdownSafe(bridge.map, 'unknown')}**. The GMod signal is stale.`,
+      ? `The server is currently running **${markdownSafe(map)}**.`
+      : `Last reported map: **${markdownSafe(map)}**. The GMod signal is stale.`,
     color: bridgeIsLive() ? COLORS.blue : COLORS.amber,
     image: ASSETS.server
   }).addFields(
+    { name: 'Map name', value: markdownSafe(map), inline: true },
     { name: 'Players', value: playerCountText(), inline: true },
     { name: 'Round', value: markdownSafe(bridge.round, 'waiting'), inline: true },
     { name: 'Last signal', value: discordTime(bridge.lastSignalAt), inline: true }
@@ -498,7 +504,10 @@ function httpCommandResponse(interaction) {
     case 'players':
       return interactionMessage({ embed: playersEmbed() });
     case 'map':
-      return interactionMessage({ embed: mapEmbed() });
+      return interactionMessage({
+        content: `Current map: ${currentMapName()}`,
+        embed: mapEmbed()
+      });
     case 'round':
       return interactionMessage({ embed: roundEmbed() });
     case 'uptime':
@@ -639,7 +648,11 @@ async function handleCommand(interaction) {
     case 'players':
       return interaction.reply({ embeds: [playersEmbed()], allowedMentions: { parse: [] } });
     case 'map':
-      return interaction.reply({ embeds: [mapEmbed()], allowedMentions: { parse: [] } });
+      return interaction.reply({
+        content: `Current map: ${currentMapName()}`,
+        embeds: [mapEmbed()],
+        allowedMentions: { parse: [] }
+      });
     case 'round':
       return interaction.reply({ embeds: [roundEmbed()], allowedMentions: { parse: [] } });
     case 'uptime':
