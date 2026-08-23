@@ -1,6 +1,8 @@
 import 'dotenv/config';
 import dns from 'node:dns';
 import { createPublicKey, timingSafeEqual, verify as verifySignature } from 'node:crypto';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import express from 'express';
 import {
   Client,
@@ -28,7 +30,12 @@ if (initialMissing.length) {
 }
 
 const app = express();
+const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
 app.disable('x-powered-by');
+app.use('/assets', express.static(path.join(moduleDirectory, '..', 'assets'), {
+  immutable: true,
+  maxAge: '7d'
+}));
 app.use(express.raw({
   type: request => !request.is('application/json'),
   limit: '64kb'
@@ -79,11 +86,12 @@ const COLORS = {
   slate: 0x64748b
 };
 
+const publicBaseUrl = String(process.env.PUBLIC_BASE_URL || 'https://notorious-discord-bot.onrender.com').replace(/\/+$/, '');
 const ASSETS = {
-  server: 'https://cdn.discordapp.com/attachments/1527542125531500684/1540378469328883803/image.png?ex=6a8bb6fd&is=6a8a657d&hm=a2d5acd2013810c47edca862d9f0cf4a9887e14b05c5355b513703c6b8954818&',
-  identity: 'https://cdn.discordapp.com/attachments/1527542125531500684/1540380037411250196/image.png?ex=6a8bb873&is=6a8a66f3&hm=8e0a12a787984400a3871d25c8204caefc5cea41de4a525fdeb3b096b7857aeb&',
-  community: 'https://cdn.discordapp.com/attachments/1527542125531500684/1540378245504041090/image.png?ex=6a8bb6c8&is=6a8a6548&hm=2911809496e99c815ebe081313c4d881d8c1cdfab4ea709d362090dfa68297be&',
-  help: 'https://cdn.discordapp.com/attachments/1527542125531500684/1540376353059242004/image.png?ex=6a8bb505&is=6a8a6385&hm=e09b8c6e495135d49a20cfc540ff19bf2c2a5cc8e27b7dc515ce78e27616ca9f&'
+  server: `${publicBaseUrl}/assets/notorious-server.png`,
+  identity: `${publicBaseUrl}/assets/notorious-identity.png`,
+  community: `${publicBaseUrl}/assets/notorious-community.png`,
+  help: `${publicBaseUrl}/assets/notorious-help.png`
 };
 
 const bridge = {

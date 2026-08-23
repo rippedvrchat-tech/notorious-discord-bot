@@ -36,3 +36,5 @@ Secrets belong in the deployment environment and must never be committed to GitH
 The service stays online when Discord is temporarily unavailable and retries the gateway connection. GMod is only shown as connected while signed heartbeats are fresh.
 
 Slash commands can arrive through Discord's signed HTTP interaction endpoint at `POST /interactions`. This is the primary command path when the hosting provider cannot maintain a Discord Gateway connection. Every request is verified with the application's Ed25519 public key before any command is handled.
+
+The four Notorious embed images are stored under `assets/` and served by the bot at `/assets/*`. This keeps embeds stable after the original signed Discord CDN links expire.
