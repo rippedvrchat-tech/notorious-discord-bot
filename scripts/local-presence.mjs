@@ -18,7 +18,7 @@ function clean(value, fallback, limit = 100) {
 function activityForHealth(health) {
   const server = health?.server || {};
   if (!health?.gmod) {
-    return { name: 'Notorious Pill Pack', state: 'Server Offline' };
+    return { name: 'Notorious PPHS', state: '🔴 Server Offline' };
   }
   const players = Number.isFinite(Number(server.players)) ? Number(server.players) : 0;
   const maxPlayers = Number.isFinite(Number(server.maxPlayers)) ? Number(server.maxPlayers) : 0;
@@ -26,8 +26,8 @@ function activityForHealth(health) {
   const map = clean(server.map, 'unknown', 48);
   const round = clean(server.round, 'waiting', 48);
   return {
-    name: 'Notorious Pill Pack',
-    state: `${count} | ${map} | ${round}`.slice(0, 128)
+    name: 'Notorious PPHS',
+    state: `🟢 ${count} | ${map} | ${round}`.slice(0, 128)
   };
 }
 
@@ -36,9 +36,9 @@ async function updatePresence() {
   let activity;
   try {
     const response = await fetch(healthUrl, { signal: AbortSignal.timeout(10000) });
-    activity = response.ok ? activityForHealth(await response.json()) : { name: 'Notorious Pill Pack', state: 'Server Offline' };
+    activity = response.ok ? activityForHealth(await response.json()) : { name: 'Notorious PPHS', state: '🔴 Server Offline' };
   } catch {
-    activity = { name: 'Notorious Pill Pack', state: 'Server Offline' };
+    activity = { name: 'Notorious PPHS', state: '🔴 Server Offline' };
   }
   client.user.setPresence({
     status: 'online',

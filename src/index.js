@@ -52,6 +52,8 @@ app.use(express.json({
   }
 }));
 
+app.get('/join', (_request, response) => response.redirect(302, gmodJoinUri));
+
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 const presence = {
   status: 'online',
@@ -98,7 +100,8 @@ const COLORS = {
 
 const publicBaseUrl = String(process.env.PUBLIC_BASE_URL || 'https://notorious-discord-bot.onrender.com').replace(/\/+$/, '');
 const websiteUrl = process.env.WEBSITE_URL || 'https://ogpill.xyz';
-const joinUrl = process.env.JOIN_URL || `${websiteUrl}/join`;
+const gmodJoinUri = process.env.GMOD_JOIN_URI || 'steam://connect/193.243.190.129:27015';
+const joinUrl = process.env.JOIN_URL || `${publicBaseUrl}/join`;
 const ASSETS = {
   server: `${publicBaseUrl}/assets/notorious-server.png`,
   identity: `${publicBaseUrl}/assets/notorious-identity.png`,
@@ -516,18 +519,19 @@ function httpCommandResponse(interaction) {
     case 'status':
       return interactionMessage({ embed: statusEmbed(), components: serverLinkComponents() });
     case 'players':
-      return interactionMessage({ embed: playersEmbed() });
+      return interactionMessage({ embed: playersEmbed(), components: serverLinkComponents() });
     case 'map':
       return interactionMessage({
         content: `Current map: ${currentMapName()}`,
-        embed: mapEmbed()
+        embed: mapEmbed(),
+        components: serverLinkComponents()
       });
     case 'round':
-      return interactionMessage({ embed: roundEmbed() });
+      return interactionMessage({ embed: roundEmbed(), components: serverLinkComponents() });
     case 'uptime':
-      return interactionMessage({ embed: uptimeEmbed() });
+      return interactionMessage({ embed: uptimeEmbed(), components: serverLinkComponents() });
     case 'help':
-      return interactionMessage({ embed: helpEmbed() });
+      return interactionMessage({ embed: helpEmbed(), components: serverLinkComponents() });
     case 'serverinfo':
       return interactionMessage({ embed: diagnosticsEmbed(), components: serverLinkComponents(), ephemeral: true });
     case 'announce': {
@@ -660,19 +664,20 @@ async function handleCommand(interaction) {
     case 'status':
       return interaction.reply({ embeds: [statusEmbed()], components: serverLinkComponents(), allowedMentions: { parse: [] } });
     case 'players':
-      return interaction.reply({ embeds: [playersEmbed()], allowedMentions: { parse: [] } });
+      return interaction.reply({ embeds: [playersEmbed()], components: serverLinkComponents(), allowedMentions: { parse: [] } });
     case 'map':
       return interaction.reply({
         content: `Current map: ${currentMapName()}`,
         embeds: [mapEmbed()],
+        components: serverLinkComponents(),
         allowedMentions: { parse: [] }
       });
     case 'round':
-      return interaction.reply({ embeds: [roundEmbed()], allowedMentions: { parse: [] } });
+      return interaction.reply({ embeds: [roundEmbed()], components: serverLinkComponents(), allowedMentions: { parse: [] } });
     case 'uptime':
-      return interaction.reply({ embeds: [uptimeEmbed()], allowedMentions: { parse: [] } });
+      return interaction.reply({ embeds: [uptimeEmbed()], components: serverLinkComponents(), allowedMentions: { parse: [] } });
     case 'help':
-      return interaction.reply({ embeds: [helpEmbed()], allowedMentions: { parse: [] } });
+      return interaction.reply({ embeds: [helpEmbed()], components: serverLinkComponents(), allowedMentions: { parse: [] } });
     case 'serverinfo':
       return interaction.reply({ flags: MessageFlags.Ephemeral, embeds: [diagnosticsEmbed()], components: serverLinkComponents(), allowedMentions: { parse: [] } });
     case 'announce': {
