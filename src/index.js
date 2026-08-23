@@ -6,6 +6,7 @@ import {
   Client,
   EmbedBuilder,
   GatewayIntentBits,
+  MessageFlags,
   PermissionFlagsBits,
   REST,
   Routes,
@@ -418,7 +419,7 @@ async function registerCommands() {
   }
 }
 
-client.on('ready', async () => {
+client.on('clientReady', async () => {
   console.log(`[Discord] Connected as ${client.user.tag}.`);
   await registerCommands();
 });
@@ -438,9 +439,9 @@ async function handleCommand(interaction) {
     case 'help':
       return interaction.reply({ embeds: [helpEmbed()], allowedMentions: { parse: [] } });
     case 'serverinfo':
-      return interaction.reply({ ephemeral: true, embeds: [diagnosticsEmbed()], allowedMentions: { parse: [] } });
+      return interaction.reply({ flags: MessageFlags.Ephemeral, embeds: [diagnosticsEmbed()], allowedMentions: { parse: [] } });
     case 'announce': {
-      await interaction.deferReply({ ephemeral: true });
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       const message = interaction.options.getString('message', true);
       const sent = await sendLogEmbed(announcementEmbed(message, interaction.user.tag));
       return interaction.editReply(sent
@@ -448,7 +449,7 @@ async function handleCommand(interaction) {
         : 'Announcement could not be sent because the log channel is unavailable.');
     }
     default:
-      return interaction.reply({ content: 'That command is not available.', ephemeral: true });
+      return interaction.reply({ content: 'That command is not available.', flags: MessageFlags.Ephemeral });
   }
 }
 
@@ -458,9 +459,9 @@ client.on('interactionCreate', async interaction => {
     await handleCommand(interaction);
   } catch (error) {
     console.error(`[Discord] Command /${interaction.commandName} failed:`, error?.message || error);
-    const payload = { content: 'The command could not be completed. Staff have been notified.', ephemeral: true };
+    const payload = { content: 'The command could not be completed. Staff have been notified.' };
     if (interaction.deferred || interaction.replied) await interaction.editReply(payload).catch(() => {});
-    else await interaction.reply(payload).catch(() => {});
+    else await interaction.reply({ ...payload, flags: MessageFlags.Ephemeral }).catch(() => {});
   }
 });
 
