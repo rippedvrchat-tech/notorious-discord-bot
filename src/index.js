@@ -57,6 +57,7 @@ const presence = {
 };
 const startedAt = Date.now();
 const bridgeStaleMs = Math.max(45000, Number(process.env.GMOD_STALE_MS || 75000));
+const gatewayEnabled = String(process.env.DISCORD_GATEWAY_ENABLED || 'true').toLowerCase() !== 'false';
 const loginRetryMs = Math.max(15000, Number(process.env.DISCORD_RETRY_MS || 30000));
 const loginTimeoutMs = Math.max(15000, Number(process.env.DISCORD_LOGIN_TIMEOUT_MS || 45000));
 
@@ -698,6 +699,7 @@ let loginInProgress = false;
 let loginRetryTimer = null;
 async function connectDiscord() {
   clearTimeout(loginRetryTimer);
+  if (!gatewayEnabled) return;
   if (client.isReady() || loginInProgress) return;
   if (!process.env.DISCORD_BOT_TOKEN) {
     console.error('[Discord] Login skipped because DISCORD_BOT_TOKEN is missing.');
