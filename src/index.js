@@ -5,7 +5,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
 import {
+  ActionRowBuilder,
   ActivityType,
+  ButtonBuilder,
+  ButtonStyle,
   Client,
   EmbedBuilder,
   GatewayIntentBits,
@@ -94,6 +97,8 @@ const COLORS = {
 };
 
 const publicBaseUrl = String(process.env.PUBLIC_BASE_URL || 'https://notorious-discord-bot.onrender.com').replace(/\/+$/, '');
+const websiteUrl = process.env.WEBSITE_URL || 'https://ogpill.xyz';
+const joinUrl = process.env.JOIN_URL || `${websiteUrl}/join`;
 const ASSETS = {
   server: `${publicBaseUrl}/assets/notorious-server.png`,
   identity: `${publicBaseUrl}/assets/notorious-identity.png`,
@@ -214,6 +219,13 @@ function brandedEmbed({ title, description, color = COLORS.blue, image = ASSETS.
     .setTimestamp();
   if (image) embed.setImage(image);
   return embed;
+}
+
+function serverLinkComponents() {
+  return [new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setLabel('Website').setStyle(ButtonStyle.Link).setURL(websiteUrl),
+    new ButtonBuilder().setLabel('Join Server').setStyle(ButtonStyle.Link).setURL(joinUrl)
+  )];
 }
 
 function statusEmbed() {
@@ -486,10 +498,11 @@ function commandOption(interaction, name) {
   return option?.value;
 }
 
-function interactionMessage({ embed, content, ephemeral = false }) {
+function interactionMessage({ embed, content, components = [], ephemeral = false }) {
   const data = { allowed_mentions: { parse: [] } };
   if (embed) data.embeds = [embed.toJSON()];
   if (content) data.content = clean(content, 'Command completed.', 2000);
+  if (components.length) data.components = components.map(component => component.toJSON());
   if (ephemeral) data.flags = Number(MessageFlags.Ephemeral);
   return { type: 4, data };
 }
@@ -501,7 +514,7 @@ function httpCommandResponse(interaction) {
   }
   switch (name) {
     case 'status':
-      return interactionMessage({ embed: statusEmbed() });
+      return interactionMessage({ embed: statusEmbed(), components: serverLinkComponents() });
     case 'players':
       return interactionMessage({ embed: playersEmbed() });
     case 'map':
@@ -516,7 +529,7 @@ function httpCommandResponse(interaction) {
     case 'help':
       return interactionMessage({ embed: helpEmbed() });
     case 'serverinfo':
-      return interactionMessage({ embed: diagnosticsEmbed(), ephemeral: true });
+      return interactionMessage({ embed: diagnosticsEmbed(), components: serverLinkComponents(), ephemeral: true });
     case 'announce': {
       const message = commandOption(interaction, 'message');
       if (typeof message !== 'string' || !message.trim()) {
@@ -645,7 +658,7 @@ client.on('clientReady', async () => {
 async function handleCommand(interaction) {
   switch (interaction.commandName) {
     case 'status':
-      return interaction.reply({ embeds: [statusEmbed()], allowedMentions: { parse: [] } });
+      return interaction.reply({ embeds: [statusEmbed()], components: serverLinkComponents(), allowedMentions: { parse: [] } });
     case 'players':
       return interaction.reply({ embeds: [playersEmbed()], allowedMentions: { parse: [] } });
     case 'map':
@@ -661,7 +674,7 @@ async function handleCommand(interaction) {
     case 'help':
       return interaction.reply({ embeds: [helpEmbed()], allowedMentions: { parse: [] } });
     case 'serverinfo':
-      return interaction.reply({ flags: MessageFlags.Ephemeral, embeds: [diagnosticsEmbed()], allowedMentions: { parse: [] } });
+      return interaction.reply({ flags: MessageFlags.Ephemeral, embeds: [diagnosticsEmbed()], components: serverLinkComponents(), allowedMentions: { parse: [] } });
     case 'announce': {
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       const message = interaction.options.getString('message', true);
