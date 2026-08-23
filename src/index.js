@@ -29,6 +29,10 @@ if (initialMissing.length) {
 
 const app = express();
 app.disable('x-powered-by');
+app.use(express.raw({
+  type: request => !request.is('application/json'),
+  limit: '64kb'
+}));
 app.use(express.json({
   limit: '64kb',
   strict: true,
@@ -155,13 +159,12 @@ function bridgeIsLive() {
 }
 
 function discordIsConnected() {
-  return client.isReady() || discordHttp.verified;
+  return client.isReady() || discordHttp.enabled;
 }
 
 function discordConnectionText() {
   if (client.isReady()) return 'Connected by Gateway';
-  if (discordHttp.verified) return 'Connected by signed HTTP';
-  if (discordHttp.enabled) return 'HTTP endpoint awaiting verification';
+  if (discordHttp.enabled) return 'Connected by signed HTTP';
   return 'Reconnecting';
 }
 
@@ -515,7 +518,7 @@ app.get('/', (_request, response) => response.json({
   service: 'Notorious Discord Bot',
   ok: true,
   discord: discordIsConnected(),
-  discordMode: client.isReady() ? 'gateway' : (discordHttp.verified ? 'http' : 'waiting'),
+  discordMode: client.isReady() ? 'gateway' : (discordHttp.enabled ? 'http' : 'waiting'),
   gmod: bridgeIsLive()
 }));
 
@@ -523,7 +526,7 @@ app.get('/health', (_request, response) => response.json({
   ok: true,
   configured: missingEnvironment().length === 0,
   discord: discordIsConnected(),
-  discordMode: client.isReady() ? 'gateway' : (discordHttp.verified ? 'http' : 'waiting'),
+  discordMode: client.isReady() ? 'gateway' : (discordHttp.enabled ? 'http' : 'waiting'),
   httpInteractionsConfigured: discordHttp.enabled,
   lastInteractionAt: discordHttp.lastInteractionAt,
   gmod: bridgeIsLive(),
@@ -544,7 +547,15 @@ app.post('/gmod/event', async (request, response) => {
   if (!secretsMatch(request.get('x-notorious-secret'), process.env.G2D_SHARED_SECRET)) {
     return response.status(401).json({ error: 'unauthorized' });
   }
-  const event = request.body && typeof request.body === 'object' && !Array.isArray(request.body) ? request.body : null;
+  let parsedBody = request.body;
+  if (Buffer.isBuffer(parsedBody) || typeof parsedBody === 'string') {
+    try {
+      parsedBody = JSON.parse(parsedBody.toString('utf8'));
+    } catch {
+      return response.status(400).json({ error: 'invalid_json' });
+    }
+  }
+  const event = parsedBody && typeof parsedBody === 'object' && !Array.isArray(parsedBody) ? parsedBody : null;
   if (!event || typeof event.type !== 'string' || !/^[a-z0-9_]{1,64}$/i.test(event.type)) {
     return response.status(400).json({ error: 'invalid_event' });
   }
