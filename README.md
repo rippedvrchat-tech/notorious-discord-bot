@@ -40,3 +40,7 @@ When the Discord Gateway connects, the bot publishes an online presence with the
 Slash commands can arrive through Discord's signed HTTP interaction endpoint at `POST /interactions`. This is the primary command path when the hosting provider cannot maintain a Discord Gateway connection. Every request is verified with the application's Ed25519 public key before any command is handled.
 
 The four Notorious embed images are stored under `assets/` and served by the bot at `/assets/*`. This keeps embeds stable after the original signed Discord CDN links expire.
+
+## Personal Rich Presence
+
+Run `npm run rich-presence` on the Windows PC where Discord Canary is open. This updates the logged-in user's profile through Discord's local RPC connection with live Notorious server details and Website / Join Server buttons. It does not use the bot token. `scripts/run-rich-presence.ps1` keeps retrying when Discord Canary is closed and reconnects when it opens.
