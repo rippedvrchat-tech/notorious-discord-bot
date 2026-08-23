@@ -40,9 +40,6 @@ app.use('/assets', express.static(path.join(moduleDirectory, '..', 'assets'), {
   immutable: true,
   maxAge: '7d'
 }));
-app.use('/activity', express.static(path.join(moduleDirectory, '..', 'public', 'activity'), {
-  maxAge: '5m'
-}));
 app.use(express.raw({
   type: request => !request.is('application/json'),
   limit: '64kb'
@@ -105,7 +102,6 @@ const publicBaseUrl = String(process.env.PUBLIC_BASE_URL || 'https://notorious-d
 const websiteUrl = process.env.WEBSITE_URL || 'https://ogpill.xyz';
 const gmodJoinUri = process.env.GMOD_JOIN_URI || 'steam://connect/193.243.190.129:27015';
 const joinUrl = process.env.JOIN_URL || `${publicBaseUrl}/join`;
-const activityEnabled = String(process.env.DISCORD_ACTIVITY_ENABLED || 'false').toLowerCase() === 'true';
 const ASSETS = {
   server: `${publicBaseUrl}/assets/notorious-server.png`,
   identity: `${publicBaseUrl}/assets/notorious-identity.png`,
@@ -128,7 +124,6 @@ const bridge = {
 
 const commands = [
   new SlashCommandBuilder().setName('status').setDescription('Show the live Notorious server dashboard'),
-  new SlashCommandBuilder().setName('activity').setDescription('Launch the live Notorious Activity'),
   new SlashCommandBuilder().setName('players').setDescription('Show the live player count and player list'),
   new SlashCommandBuilder().setName('map').setDescription('Show the current Garry\'s Mod map'),
   new SlashCommandBuilder().setName('round').setDescription('Show the current Pill Pack round state'),
@@ -147,7 +142,7 @@ const commands = [
     .setName('serverinfo')
     .setDescription('Show private Notorious integration diagnostics')
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
-].filter(command => activityEnabled || command.name !== 'activity').map(command => command.toJSON());
+].map(command => command.toJSON());
 
 function clean(value, fallback = 'Unknown', limit = 1000) {
   const raw = String(value ?? fallback)
@@ -521,8 +516,6 @@ function httpCommandResponse(interaction) {
     return interactionMessage({ content: 'You need Manage Server permission to use this command.', ephemeral: true });
   }
   switch (name) {
-    case 'activity':
-      return { type: 12 };
     case 'status':
       return interactionMessage({ embed: statusEmbed(), components: serverLinkComponents() });
     case 'players':
@@ -668,10 +661,6 @@ client.on('clientReady', async () => {
 
 async function handleCommand(interaction) {
   switch (interaction.commandName) {
-    case 'activity':
-      return client.rest.post(Routes.interactionCallback(interaction.id, interaction.token), {
-        body: { type: 12 }
-      });
     case 'status':
       return interaction.reply({ embeds: [statusEmbed()], components: serverLinkComponents(), allowedMentions: { parse: [] } });
     case 'players':
