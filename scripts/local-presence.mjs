@@ -9,6 +9,10 @@ if (!token) {
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
 const healthUrl = 'https://notorious-discord-bot.onrender.com/health';
+const applicationId = process.env.DISCORD_APPLICATION_ID || '1502781288141033573';
+const largeImageKey = process.env.DISCORD_ACTIVITY_LARGE_IMAGE || 'notorious_banner';
+const websiteUrl = process.env.WEBSITE_URL || 'https://ogpill.xyz';
+const joinUrl = process.env.JOIN_URL || 'https://notorious-discord-bot.onrender.com/join';
 
 function clean(value, fallback, limit = 100) {
   const text = String(value ?? fallback).replace(/[\u0000-\u001f\u007f]/g, ' ').trim();
@@ -40,12 +44,32 @@ async function updatePresence() {
   } catch {
     activity = { name: 'Notorious PPHS', state: '🔴 Server Offline' };
   }
-  client.user.setPresence({
-    status: 'online',
-    afk: false,
-    activities: [{ name: activity.name, state: activity.state, type: ActivityType.Playing }]
+  const activityPayload = {
+    name: activity.name,
+    type: ActivityType.Playing,
+    application_id: applicationId,
+    details: 'Pill Pack Hide & Seek',
+    state: activity.state,
+    assets: {
+      large_image: largeImageKey,
+      large_text: 'Notorious Pill Pack'
+    },
+    buttons: [
+      { label: 'Website', url: websiteUrl },
+      { label: 'Join Server', url: joinUrl }
+    ]
+  };
+  client.ws.broadcast({
+    op: 3,
+    d: {
+      since: null,
+      activities: [activityPayload],
+      status: 'online',
+      afk: false
+    }
   });
   console.log(`[Presence] Updated: ${activity.name} | ${activity.state}`);
+  console.log('[Presence] Profile buttons published: Website, Join Server.');
 }
 
 client.once('clientReady', () => {
