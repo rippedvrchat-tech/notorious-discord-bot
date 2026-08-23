@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import dns from 'node:dns';
-import { timingSafeEqual } from 'node:crypto';
+import { createPublicKey, timingSafeEqual, verify as verifySignature } from 'node:crypto';
 import express from 'express';
 import {
   Client,
@@ -29,13 +29,41 @@ if (initialMissing.length) {
 
 const app = express();
 app.disable('x-powered-by');
-app.use(express.json({ limit: '64kb', strict: true }));
+app.use(express.json({
+  limit: '64kb',
+  strict: true,
+  verify: (request, _response, buffer) => {
+    request.rawBody = Buffer.from(buffer);
+  }
+}));
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 const startedAt = Date.now();
 const bridgeStaleMs = Math.max(45000, Number(process.env.GMOD_STALE_MS || 75000));
 const loginRetryMs = Math.max(15000, Number(process.env.DISCORD_RETRY_MS || 30000));
 const loginTimeoutMs = Math.max(15000, Number(process.env.DISCORD_LOGIN_TIMEOUT_MS || 45000));
+
+const discordHttp = {
+  enabled: false,
+  verified: false,
+  lastInteractionAt: null,
+  publicKey: null
+};
+
+if (process.env.DISCORD_PUBLIC_KEY) {
+  try {
+    const rawKey = Buffer.from(process.env.DISCORD_PUBLIC_KEY.trim(), 'hex');
+    if (rawKey.length !== 32) throw new Error('Public key must contain 32 bytes');
+    discordHttp.publicKey = createPublicKey({
+      key: Buffer.concat([Buffer.from('302a300506032b6570032100', 'hex'), rawKey]),
+      format: 'der',
+      type: 'spki'
+    });
+    discordHttp.enabled = true;
+  } catch (error) {
+    console.error('[Discord] HTTP interaction public key is invalid:', error.message);
+  }
+}
 
 const COLORS = {
   blue: 0x35b9ff,
@@ -126,6 +154,17 @@ function bridgeIsLive() {
   return bridgeAge() <= bridgeStaleMs;
 }
 
+function discordIsConnected() {
+  return client.isReady() || discordHttp.verified;
+}
+
+function discordConnectionText() {
+  if (client.isReady()) return 'Connected by Gateway';
+  if (discordHttp.verified) return 'Connected by signed HTTP';
+  if (discordHttp.enabled) return 'HTTP endpoint awaiting verification';
+  return 'Reconnecting';
+}
+
 function playerCountText() {
   return bridge.maxPlayers > 0 ? `${bridge.players} / ${bridge.maxPlayers}` : String(bridge.players);
 }
@@ -153,7 +192,7 @@ function statusEmbed() {
     color: live ? COLORS.blue : COLORS.red,
     image: ASSETS.server
   }).addFields(
-    { name: 'Discord', value: client.isReady() ? 'Connected' : 'Reconnecting', inline: true },
+    { name: 'Discord', value: discordConnectionText(), inline: true },
     { name: 'GMod bridge', value: live ? 'Connected' : 'Waiting for signal', inline: true },
     { name: 'Players', value: playerCountText(), inline: true },
     { name: 'Current map', value: `\`${markdownSafe(bridge.map, 'unknown', 900)}\``, inline: true },
@@ -248,7 +287,7 @@ function diagnosticsEmbed() {
     color: missing.length || !bridgeIsLive() ? COLORS.amber : COLORS.green,
     image: ASSETS.identity
   }).addFields(
-    { name: 'Discord gateway', value: client.isReady() ? 'Connected' : 'Reconnecting', inline: true },
+    { name: 'Discord commands', value: discordConnectionText(), inline: true },
     { name: 'GMod heartbeat', value: bridgeIsLive() ? 'Connected' : 'Missing or stale', inline: true },
     { name: 'Configuration', value: missing.length ? `Missing: ${missing.join(', ')}` : 'Complete', inline: true },
     { name: 'Bridge version', value: markdownSafe(bridge.version, 'unknown'), inline: true },
@@ -321,8 +360,21 @@ async function logChannel() {
 
 async function sendLogEmbed(embed) {
   const channel = await logChannel();
-  if (!channel) return false;
-  await channel.send({ embeds: [embed], allowedMentions: { parse: [] } });
+  if (channel) {
+    await channel.send({ embeds: [embed], allowedMentions: { parse: [] } });
+    return true;
+  }
+  const channelId = process.env.DISCORD_LOG_CHANNEL_ID;
+  if (!channelId || !process.env.DISCORD_BOT_TOKEN) return false;
+  const response = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bot ${process.env.DISCORD_BOT_TOKEN}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ embeds: [embed.toJSON()], allowed_mentions: { parse: [] } })
+  });
+  if (!response.ok) throw new Error(`Discord REST returned HTTP ${response.status}`);
   return true;
 }
 
@@ -354,17 +406,126 @@ function secretsMatch(provided, expected) {
   return first.length === second.length && timingSafeEqual(first, second);
 }
 
+function validDiscordSignature(request) {
+  if (!discordHttp.publicKey || !Buffer.isBuffer(request.rawBody)) return false;
+  const signature = request.get('x-signature-ed25519');
+  const timestamp = request.get('x-signature-timestamp');
+  if (!signature || !timestamp || !/^[0-9a-f]{128}$/i.test(signature)) return false;
+  const requestTime = Number(timestamp) * 1000;
+  if (!Number.isFinite(requestTime) || Math.abs(Date.now() - requestTime) > 300000) return false;
+  try {
+    return verifySignature(
+      null,
+      Buffer.concat([Buffer.from(timestamp), request.rawBody]),
+      discordHttp.publicKey,
+      Buffer.from(signature, 'hex')
+    );
+  } catch {
+    return false;
+  }
+}
+
+function interactionUser(interaction) {
+  return interaction.member?.user || interaction.user || {};
+}
+
+function interactionUserName(interaction) {
+  const user = interactionUser(interaction);
+  return clean(user.global_name || user.username, 'Notorious Staff', 200);
+}
+
+function interactionHasManageGuild(interaction) {
+  try {
+    const permissions = BigInt(interaction.member?.permissions || '0');
+    return (permissions & PermissionFlagsBits.ManageGuild) === PermissionFlagsBits.ManageGuild;
+  } catch {
+    return false;
+  }
+}
+
+function commandOption(interaction, name) {
+  const option = Array.isArray(interaction.data?.options)
+    ? interaction.data.options.find(item => item.name === name)
+    : null;
+  return option?.value;
+}
+
+function interactionMessage({ embed, content, ephemeral = false }) {
+  const data = { allowed_mentions: { parse: [] } };
+  if (embed) data.embeds = [embed.toJSON()];
+  if (content) data.content = clean(content, 'Command completed.', 2000);
+  if (ephemeral) data.flags = Number(MessageFlags.Ephemeral);
+  return { type: 4, data };
+}
+
+function httpCommandResponse(interaction) {
+  const name = clean(interaction.data?.name, '', 64).toLowerCase();
+  if (['announce', 'serverinfo'].includes(name) && !interactionHasManageGuild(interaction)) {
+    return interactionMessage({ content: 'You need Manage Server permission to use this command.', ephemeral: true });
+  }
+  switch (name) {
+    case 'status':
+      return interactionMessage({ embed: statusEmbed() });
+    case 'players':
+      return interactionMessage({ embed: playersEmbed() });
+    case 'map':
+      return interactionMessage({ embed: mapEmbed() });
+    case 'round':
+      return interactionMessage({ embed: roundEmbed() });
+    case 'uptime':
+      return interactionMessage({ embed: uptimeEmbed() });
+    case 'help':
+      return interactionMessage({ embed: helpEmbed() });
+    case 'serverinfo':
+      return interactionMessage({ embed: diagnosticsEmbed(), ephemeral: true });
+    case 'announce': {
+      const message = commandOption(interaction, 'message');
+      if (typeof message !== 'string' || !message.trim()) {
+        return interactionMessage({ content: 'Announcement text is required.', ephemeral: true });
+      }
+      return interactionMessage({ embed: announcementEmbed(message, interactionUserName(interaction)) });
+    }
+    default:
+      return interactionMessage({ content: 'That command is not available.', ephemeral: true });
+  }
+}
+
+app.post('/interactions', (request, response) => {
+  if (!discordHttp.enabled) return response.status(503).json({ error: 'interactions_not_configured' });
+  if (!validDiscordSignature(request)) return response.status(401).json({ error: 'invalid_signature' });
+  discordHttp.verified = true;
+  discordHttp.lastInteractionAt = new Date().toISOString();
+  const interaction = request.body;
+  if (interaction?.type === 1) return response.json({ type: 1 });
+  if (interaction?.type !== 2) {
+    return response.json(interactionMessage({ content: 'This interaction type is not supported.', ephemeral: true }));
+  }
+  try {
+    return response.json(httpCommandResponse(interaction));
+  } catch (error) {
+    console.error('[Discord] HTTP interaction failed:', error?.message || error);
+    return response.json(interactionMessage({
+      content: 'The command could not be completed. Staff have been notified.',
+      ephemeral: true
+    }));
+  }
+});
+
 app.get('/', (_request, response) => response.json({
   service: 'Notorious Discord Bot',
   ok: true,
-  discord: client.isReady(),
+  discord: discordIsConnected(),
+  discordMode: client.isReady() ? 'gateway' : (discordHttp.verified ? 'http' : 'waiting'),
   gmod: bridgeIsLive()
 }));
 
 app.get('/health', (_request, response) => response.json({
   ok: true,
   configured: missingEnvironment().length === 0,
-  discord: client.isReady(),
+  discord: discordIsConnected(),
+  discordMode: client.isReady() ? 'gateway' : (discordHttp.verified ? 'http' : 'waiting'),
+  httpInteractionsConfigured: discordHttp.enabled,
+  lastInteractionAt: discordHttp.lastInteractionAt,
   gmod: bridgeIsLive(),
   server: {
     map: bridge.map,
@@ -400,12 +561,15 @@ app.use((error, _request, response, _next) => {
 });
 
 let commandRetryTimer = null;
+let commandRegistrationInProgress = false;
 async function registerCommands() {
   clearTimeout(commandRetryTimer);
+  if (commandRegistrationInProgress) return;
   if (!process.env.DISCORD_BOT_TOKEN || !process.env.DISCORD_APPLICATION_ID || !process.env.DISCORD_GUILD_ID) {
     console.error('[Discord] Command registration skipped because configuration is incomplete.');
     return;
   }
+  commandRegistrationInProgress = true;
   const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_BOT_TOKEN);
   try {
     await rest.put(
@@ -416,6 +580,8 @@ async function registerCommands() {
   } catch (error) {
     console.error('[Discord] Command registration failed:', error?.message || error);
     commandRetryTimer = setTimeout(registerCommands, 60000);
+  } finally {
+    commandRegistrationInProgress = false;
   }
 }
 
@@ -502,6 +668,7 @@ setInterval(() => {
   if (!client.isReady() && !loginInProgress) connectDiscord();
 }, 60000).unref();
 
+setTimeout(registerCommands, 1000).unref();
 connectDiscord();
 app.listen(Number(process.env.PORT || 3000), () => {
   console.log(`[HTTP] Bridge listening on port ${process.env.PORT || 3000}.`);

@@ -21,6 +21,7 @@ Discord command bot and signed GMod telemetry bridge for Notorious Pill Pack Hid
 - `DISCORD_APPLICATION_ID`
 - `DISCORD_GUILD_ID`
 - `G2D_SHARED_SECRET`
+- `DISCORD_PUBLIC_KEY` for signed HTTP interactions
 
 `DISCORD_LOG_CHANNEL_ID` is optional, but event logs and `/announce` require it.
 
@@ -33,3 +34,5 @@ Secrets belong in the deployment environment and must never be committed to GitH
 - `POST /gmod/event`: Signed GMod telemetry input using the `x-notorious-secret` header
 
 The service stays online when Discord is temporarily unavailable and retries the gateway connection. GMod is only shown as connected while signed heartbeats are fresh.
+
+Slash commands can arrive through Discord's signed HTTP interaction endpoint at `POST /interactions`. This is the primary command path when the hosting provider cannot maintain a Discord Gateway connection. Every request is verified with the application's Ed25519 public key before any command is handled.
