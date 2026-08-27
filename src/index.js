@@ -4,7 +4,7 @@ import { createPublicKey, timingSafeEqual, verify as verifySignature } from 'nod
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
-import { isRelayablePublicChat } from './chat-policy.js';
+import { formatPublicChatMessage, isRelayablePublicChat } from './chat-policy.js';
 import {
   ActionRowBuilder,
   ActivityType,
@@ -674,9 +674,15 @@ app.post('/gmod/event', async (request, response) => {
     if (!isRelayablePublicChat(event.message)) {
       return response.json({ ok: true, received: 'chat', bridgeLive: true, delivered: false, filtered: true });
     }
-    return response.json({
-      ok: true, received: 'chat', bridgeLive: true, delivered: false, transport: 'discordtoolkit'
-    });
+    try {
+      const player = clean(event.player, 'Player', 120);
+      const message = clean(event.message, '', 1800);
+      await trackedDelivery('chat', () => sendChatMessage(formatPublicChatMessage(player, message)));
+    } catch (error) {
+      console.error('[Discord] Chat delivery failed:', error?.message || error);
+      return response.status(502).json({ error: 'discord_delivery_failed', received: 'chat', bridgeLive: true });
+    }
+    return response.json({ ok: true, received: 'chat', bridgeLive: true, delivered: true, transport: 'bot' });
   }
   return response.json({
     ok: true, received: clean(event.type, 'server_event', 64), bridgeLive: true,
