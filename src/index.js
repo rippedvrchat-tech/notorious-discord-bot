@@ -54,6 +54,8 @@ app.use(express.json({
 }));
 
 app.get('/join', (_request, response) => response.redirect(302, gmodJoinUri));
+const discordRest = process.env.DISCORD_BOT_TOKEN
+  ? new REST({ version: '10' }).setToken(process.env.DISCORD_BOT_TOKEN) : null;
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 const presence = {
@@ -428,9 +430,10 @@ async function sendChatMessage(content) {
     const channel = await client.channels.fetch(discordChatChannelId).catch(() => null);
     if (channel?.isTextBased()) { await channel.send({ content: message, allowedMentions: { parse: [] } }); return true; }
   }
-  if (!process.env.DISCORD_BOT_TOKEN) return false;
-  const response = await fetch(`https://discord.com/api/v10/channels/${discordChatChannelId}/messages`, { method: 'POST', headers: { Authorization: `Bot ${process.env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ content: message, allowed_mentions: { parse: [] } }) });
-  if (!response.ok) throw new Error(`Discord chat REST returned HTTP ${response.status}`);
+  if (!discordRest) return false;
+  await discordRest.post(Routes.channelMessages(discordChatChannelId), {
+    body: { content: message, allowed_mentions: { parse: [] } }
+  });
   return true;
 }
 async function sendLogEmbed(embed) {
@@ -440,16 +443,10 @@ async function sendLogEmbed(embed) {
     return true;
   }
   const channelId = discordLogChannelId;
-  if (!channelId || !process.env.DISCORD_BOT_TOKEN) return false;
-  const response = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bot ${process.env.DISCORD_BOT_TOKEN}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({ embeds: [embed.toJSON()], allowed_mentions: { parse: [] } })
+  if (!channelId || !discordRest) return false;
+  await discordRest.post(Routes.channelMessages(channelId), {
+    body: { embeds: [embed.toJSON()], allowed_mentions: { parse: [] } }
   });
-  if (!response.ok) throw new Error(`Discord REST returned HTTP ${response.status}`);
   return true;
 }
 
@@ -701,14 +698,13 @@ let commandRegistrationInProgress = false;
 async function registerCommands() {
   clearTimeout(commandRetryTimer);
   if (commandRegistrationInProgress) return;
-  if (!process.env.DISCORD_BOT_TOKEN || !process.env.DISCORD_APPLICATION_ID || !process.env.DISCORD_GUILD_ID) {
+  if (!discordRest || !process.env.DISCORD_APPLICATION_ID || !process.env.DISCORD_GUILD_ID) {
     console.error('[Discord] Command registration skipped because configuration is incomplete.');
     return;
   }
   commandRegistrationInProgress = true;
-  const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_BOT_TOKEN);
   try {
-    await rest.put(
+    await discordRest.put(
       Routes.applicationGuildCommands(process.env.DISCORD_APPLICATION_ID, process.env.DISCORD_GUILD_ID),
       { body: commands }
     );
