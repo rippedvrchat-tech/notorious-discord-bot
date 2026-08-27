@@ -6,7 +6,3 @@ export function isRelayablePublicChat(value) {
   if (/^\/asay(?:\s|$)/.test(normalized)) return false;
   return true;
 }
-
-export function formatPublicChatMessage(player, message) {
-  return '**' + player + '**: ' + message;
-}

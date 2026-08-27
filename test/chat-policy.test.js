@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { formatPublicChatMessage, isRelayablePublicChat } from '../src/chat-policy.js';
+import { isRelayablePublicChat } from '../src/chat-policy.js';
 
 test('allows ordinary public chat', () => {
   for (const message of ['hello', 'hello everyone', '  normal message  ', '/help me with the map']) {
@@ -22,8 +22,4 @@ test('blocks commands and private staff chat', () => {
   ]) {
     assert.equal(isRelayablePublicChat(message), false, message);
   }
-});
-
-test('formats public chat', () => {
-  assert.equal(formatPublicChatMessage('Player', 'hello'), '**Player**: hello');
 });

@@ -4,7 +4,7 @@ import { createPublicKey, timingSafeEqual, verify as verifySignature } from 'nod
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
-import { formatPublicChatMessage, isRelayablePublicChat } from './chat-policy.js';
+import { isRelayablePublicChat } from './chat-policy.js';
 import {
   ActionRowBuilder,
   ActivityType,
@@ -668,24 +668,20 @@ app.post('/gmod/event', async (request, response) => {
   }
   updateBridge(event);
   if (event.type === 'status') {
-    return response.json({ ok: true, received: 'status', bridgeLive: true, delivered: false });
+    return response.json({ ok: true, received: 'status', bridgeLive: true, delivered: false, transport: 'telemetry' });
   }
-  try {
-    if (event.type === 'chat') {
-      if (!isRelayablePublicChat(event.message)) {
-        return response.json({ ok: true, received: 'chat', bridgeLive: true, delivered: false, filtered: true });
-      }
-      const player = clean(event.player, 'Player', 120);
-      const message = clean(event.message, '', 1800);
-      await trackedDelivery('chat', () => sendChatMessage(formatPublicChatMessage(player, message)));
-    } else {
-      await trackedDelivery(event.type, () => sendLogEmbed(eventEmbed(event)));
+  if (event.type === 'chat') {
+    if (!isRelayablePublicChat(event.message)) {
+      return response.json({ ok: true, received: 'chat', bridgeLive: true, delivered: false, filtered: true });
     }
-  } catch (error) {
-    console.error('[Discord] Event delivery failed:', error?.message || error);
-    return response.status(502).json({ error: 'discord_delivery_failed', received: clean(event.type, 'server_event', 64), bridgeLive: true });
+    return response.json({
+      ok: true, received: 'chat', bridgeLive: true, delivered: false, transport: 'discordtoolkit'
+    });
   }
-  return response.json({ ok: true, received: clean(event.type, 'server_event', 64), bridgeLive: true, delivered: true });
+  return response.json({
+    ok: true, received: clean(event.type, 'server_event', 64), bridgeLive: true,
+    delivered: false, transport: 'discordtoolkit'
+  });
 });
 
 app.use((error, _request, response, _next) => {
