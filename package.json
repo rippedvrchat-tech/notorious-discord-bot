@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "start": "node src/index.js",
-    "rich-presence": "node scripts/local-rich-presence.mjs"
+    "rich-presence": "node scripts/local-rich-presence.mjs",
+    "check": "node --check src/index.js && node --check src/chat-policy.js",
+    "test": "node --test --test-isolation=none"
   },
   "engines": {
     "node": ">=20"

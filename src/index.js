@@ -4,6 +4,7 @@ import { createPublicKey, timingSafeEqual, verify as verifySignature } from 'nod
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
+import { formatPublicChatMessage, isRelayablePublicChat } from './chat-policy.js';
 import {
   ActionRowBuilder,
   ActivityType,
@@ -121,6 +122,15 @@ const bridge = {
   lastSignalAt: null,
   lastEventAt: null,
   lastEventType: null
+};
+
+const delivery = {
+  lastType: null,
+  lastAttemptAt: null,
+  lastSuccessAt: null,
+  lastFailureAt: null,
+  lastError: null,
+  consecutiveFailures: 0
 };
 
 const commands = [
@@ -442,6 +452,24 @@ async function sendLogEmbed(embed) {
   return true;
 }
 
+async function trackedDelivery(type, operation) {
+  delivery.lastType = clean(type, 'unknown', 64);
+  delivery.lastAttemptAt = new Date().toISOString();
+  try {
+    const sent = await operation();
+    if (!sent) throw new Error('Discord delivery is not configured for this message type');
+    delivery.lastSuccessAt = new Date().toISOString();
+    delivery.lastError = null;
+    delivery.consecutiveFailures = 0;
+    return true;
+  } catch (error) {
+    delivery.lastFailureAt = new Date().toISOString();
+    delivery.lastError = clean(error?.message || error, 'Unknown Discord delivery failure', 300);
+    delivery.consecutiveFailures += 1;
+    throw error;
+  }
+}
+
 function boundedNumber(value, fallback, minimum, maximum) {
   const number = Number(value);
   return Number.isFinite(number) ? Math.min(maximum, Math.max(minimum, Math.floor(number))) : fallback;
@@ -523,7 +551,7 @@ function interactionMessage({ embed, content, components = [], ephemeral = false
   return { type: 4, data };
 }
 
-function httpCommandResponse(interaction) {
+async function httpCommandResponse(interaction) {
   const name = clean(interaction.data?.name, '', 64).toLowerCase();
   if (['announce', 'serverinfo'].includes(name) && !interactionHasManageGuild(interaction)) {
     return interactionMessage({ content: 'You need Manage Server permission to use this command.', ephemeral: true });
@@ -552,14 +580,17 @@ function httpCommandResponse(interaction) {
       if (typeof message !== 'string' || !message.trim()) {
         return interactionMessage({ content: 'Announcement text is required.', ephemeral: true });
       }
-      return interactionMessage({ embed: announcementEmbed(message, interactionUserName(interaction)) });
+      const sent = await trackedDelivery('announcement', () =>
+        sendLogEmbed(announcementEmbed(message, interactionUserName(interaction))));
+      return interactionMessage({ content: sent
+        ? 'Announcement sent to the configured Notorious log channel.' : 'Announcement could not be sent.', ephemeral: true });
     }
     default:
       return interactionMessage({ content: 'That command is not available.', ephemeral: true });
   }
 }
 
-app.post('/interactions', (request, response) => {
+app.post('/interactions', async (request, response) => {
   if (!discordHttp.enabled) return response.status(503).json({ error: 'interactions_not_configured' });
   if (!validDiscordSignature(request)) return response.status(401).json({ error: 'invalid_signature' });
   discordHttp.verified = true;
@@ -570,7 +601,7 @@ app.post('/interactions', (request, response) => {
     return response.json(interactionMessage({ content: 'This interaction type is not supported.', ephemeral: true }));
   }
   try {
-    return response.json(httpCommandResponse(interaction));
+    return response.json(await httpCommandResponse(interaction));
   } catch (error) {
     console.error('[Discord] HTTP interaction failed:', error?.message || error);
     return response.json(interactionMessage({
@@ -609,7 +640,15 @@ app.get('/health', (_request, response) => response.json({
     lastEventType: bridge.lastEventType,
     bridgeVersion: bridge.version
   },
-  uptimeSeconds: Math.floor((Date.now() - startedAt) / 1000)
+  uptimeSeconds: Math.floor((Date.now() - startedAt) / 1000),
+  delivery: {
+    lastType: delivery.lastType,
+    lastAttemptAt: delivery.lastAttemptAt,
+    lastSuccessAt: delivery.lastSuccessAt,
+    lastFailureAt: delivery.lastFailureAt,
+    lastError: delivery.lastError,
+    consecutiveFailures: delivery.consecutiveFailures
+  },
 }));
 
 app.post('/gmod/event', async (request, response) => {
@@ -630,12 +669,25 @@ app.post('/gmod/event', async (request, response) => {
     return response.status(400).json({ error: 'invalid_event' });
   }
   updateBridge(event);
-  if (event.type === 'chat') {
-    sendChatMessage("**" + clean(event.player, "Player", 120) + "**: " + clean(event.message, "", 1800)).catch(error => console.error("[Discord] Chat delivery failed:", error.message));
-  } else if (event.type !== 'status') {
-    sendLogEmbed(eventEmbed(event)).catch(error => console.error('[Discord] Event log failed:', error.message));
+  if (event.type === 'status') {
+    return response.json({ ok: true, received: 'status', bridgeLive: true, delivered: false });
   }
-  return response.json({ ok: true, received: clean(event.type, 'server_event', 64), bridgeLive: true });
+  try {
+    if (event.type === 'chat') {
+      if (!isRelayablePublicChat(event.message)) {
+        return response.json({ ok: true, received: 'chat', bridgeLive: true, delivered: false, filtered: true });
+      }
+      const player = clean(event.player, 'Player', 120);
+      const message = clean(event.message, '', 1800);
+      await trackedDelivery('chat', () => sendChatMessage(formatPublicChatMessage(player, message)));
+    } else {
+      await trackedDelivery(event.type, () => sendLogEmbed(eventEmbed(event)));
+    }
+  } catch (error) {
+    console.error('[Discord] Event delivery failed:', error?.message || error);
+    return response.status(502).json({ error: 'discord_delivery_failed', received: clean(event.type, 'server_event', 64), bridgeLive: true });
+  }
+  return response.json({ ok: true, received: clean(event.type, 'server_event', 64), bridgeLive: true, delivered: true });
 });
 
 app.use((error, _request, response, _next) => {
