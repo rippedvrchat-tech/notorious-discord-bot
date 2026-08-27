@@ -99,6 +99,7 @@ const COLORS = {
 };
 
 const publicBaseUrl = String(process.env.PUBLIC_BASE_URL || 'https://notorious-discord-bot.onrender.com').replace(/\/+$/, '');
+const discordChatChannelId = process.env.DISCORD_CHAT_CHANNEL_ID || '1528106297080156180';
 const websiteUrl = process.env.WEBSITE_URL || 'https://ogpill.xyz';
 const gmodJoinUri = process.env.GMOD_JOIN_URI || 'steam://connect/193.243.190.129:27015';
 const joinUrl = process.env.JOIN_URL || `${publicBaseUrl}/join`;
@@ -409,6 +410,18 @@ async function logChannel() {
   return channel?.isTextBased() ? channel : null;
 }
 
+async function sendChatMessage(content) {
+  const message = String(content || '').slice(0, 2000);
+  if (!message) return false;
+  if (client.isReady()) {
+    const channel = await client.channels.fetch(discordChatChannelId).catch(() => null);
+    if (channel?.isTextBased()) { await channel.send({ content: message, allowedMentions: { parse: [] } }); return true; }
+  }
+  if (!process.env.DISCORD_BOT_TOKEN) return false;
+  const response = await fetch(`https://discord.com/api/v10/channels/${discordChatChannelId}/messages`, { method: 'POST', headers: { Authorization: `Bot ${process.env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ content: message, allowed_mentions: { parse: [] } }) });
+  if (!response.ok) throw new Error(`Discord chat REST returned HTTP ${response.status}`);
+  return true;
+}
 async function sendLogEmbed(embed) {
   const channel = await logChannel();
   if (channel) {
@@ -617,7 +630,9 @@ app.post('/gmod/event', async (request, response) => {
     return response.status(400).json({ error: 'invalid_event' });
   }
   updateBridge(event);
-  if (event.type !== 'status') {
+  if (event.type === 'chat') {
+    sendChatMessage("**" + clean(event.player, "Player", 120) + "**: " + clean(event.message, "", 1800)).catch(error => console.error("[Discord] Chat delivery failed:", error.message));
+  } else if (event.type !== 'status') {
     sendLogEmbed(eventEmbed(event)).catch(error => console.error('[Discord] Event log failed:', error.message));
   }
   return response.json({ ok: true, received: clean(event.type, 'server_event', 64), bridgeLive: true });
