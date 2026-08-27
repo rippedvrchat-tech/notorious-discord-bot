@@ -101,6 +101,7 @@ const COLORS = {
 
 const publicBaseUrl = String(process.env.PUBLIC_BASE_URL || 'https://notorious-discord-bot.onrender.com').replace(/\/+$/, '');
 const discordChatChannelId = process.env.DISCORD_CHAT_CHANNEL_ID || '1528106297080156180';
+const discordLogChannelId = process.env.DISCORD_LOG_CHANNEL_ID || '1533995392096796703';
 const websiteUrl = process.env.WEBSITE_URL || 'https://ogpill.xyz';
 const gmodJoinUri = process.env.GMOD_JOIN_URI || 'steam://connect/193.243.190.129:27015';
 const joinUrl = process.env.JOIN_URL || `${publicBaseUrl}/join`;
@@ -411,7 +412,7 @@ function announcementEmbed(message, author) {
 }
 
 async function logChannel() {
-  const channelId = process.env.DISCORD_LOG_CHANNEL_ID;
+  const channelId = discordLogChannelId;
   if (!channelId || !client.isReady()) return null;
   const channel = await client.channels.fetch(channelId).catch(error => {
     console.error('[Discord] Log channel fetch failed:', error.message);
@@ -438,7 +439,7 @@ async function sendLogEmbed(embed) {
     await channel.send({ embeds: [embed], allowedMentions: { parse: [] } });
     return true;
   }
-  const channelId = process.env.DISCORD_LOG_CHANNEL_ID;
+  const channelId = discordLogChannelId;
   if (!channelId || !process.env.DISCORD_BOT_TOKEN) return false;
   const response = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
     method: 'POST',
