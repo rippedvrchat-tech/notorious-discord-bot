@@ -163,6 +163,7 @@ const bridge = {
   lastEventAt: null,
   lastEventType: null
 };
+let gameQueryInFlight = false;
 
 const delivery = {
   lastType: null,
@@ -674,6 +675,8 @@ function updateBridge(event) {
 }
 
 async function pollGameServer() {
+  if (gameQueryInFlight) return;
+  gameQueryInFlight = true;
   try {
     const server = await GameDig.query({
       type: 'garrysmod',
@@ -692,6 +695,9 @@ async function pollGameServer() {
     if (changed) queueLiveStatusUpdate();
   } catch (error) {
     console.error('[GameQuery] Server query failed:', error?.message || error);
+    setTimeout(() => void pollGameServer(), 2000).unref();
+  } finally {
+    gameQueryInFlight = false;
   }
 }
 
