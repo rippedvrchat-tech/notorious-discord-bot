@@ -68,6 +68,7 @@ const bridgeStaleMs = Math.max(45000, Number(process.env.GMOD_STALE_MS || 75000)
 const gatewayEnabled = String(process.env.DISCORD_GATEWAY_ENABLED || 'true').toLowerCase() !== 'false';
 const loginRetryMs = Math.max(15000, Number(process.env.DISCORD_RETRY_MS || 30000));
 const loginTimeoutMs = Math.max(15000, Number(process.env.DISCORD_LOGIN_TIMEOUT_MS || 45000));
+const deliveryTimeoutMs = Math.max(5000, Number(process.env.DISCORD_DELIVERY_TIMEOUT_MS || 15000));
 
 const discordHttp = {
   enabled: false,
@@ -454,7 +455,10 @@ async function trackedDelivery(type, operation) {
   delivery.lastType = clean(type, 'unknown', 64);
   delivery.lastAttemptAt = new Date().toISOString();
   try {
-    const sent = await operation();
+    const sent = await Promise.race([
+      operation(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Discord delivery timed out')), deliveryTimeoutMs))
+    ]);
     if (!sent) throw new Error('Discord delivery is not configured for this message type');
     delivery.lastSuccessAt = new Date().toISOString();
     delivery.lastError = null;
