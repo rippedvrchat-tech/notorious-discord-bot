@@ -262,6 +262,19 @@ async function websiteIsOnline(signal) {
   }
 }
 
+async function patchStatusChannel(channelId, name, signal) {
+  const response = await fetch(`https://discord.com/api/v10/channels/${channelId}`, {
+    method: 'PATCH',
+    headers: {
+      Authorization: `Bot ${process.env.DISCORD_BOT_TOKEN}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ name }),
+    signal
+  });
+  if (!response.ok) throw new Error(`Discord channel update failed with HTTP ${response.status}`);
+}
+
 function discordIsConnected() {
   return client.isReady() || (discordHttp.enabled && discordHttp.apiVerified);
 }
@@ -555,13 +568,9 @@ async function sendLogEmbed(embed, signal) {
 async function sendLiveStatusMessage(signal) {
   if (!discordRest || !discordStatusTargets.length) return false;
   const websiteOnline = await websiteIsOnline(signal);
-  for (const target of discordStatusTargets) {
-    if (!validChannelId(target.channelId)) continue;
-    await discordRest.patch(Routes.channel(target.channelId), {
-      body: { name: liveStatusChannelName(target, websiteOnline) },
-      signal
-    });
-  }
+  await Promise.all(discordStatusTargets
+    .filter(target => validChannelId(target.channelId))
+    .map(target => patchStatusChannel(target.channelId, liveStatusChannelName(target, websiteOnline), signal)));
   return true;
 }
 
