@@ -74,6 +74,7 @@ const loginRetryMs = envNumber('DISCORD_RETRY_MS', 30000, 15000, 3600000);
 const loginTimeoutMs = envNumber('DISCORD_LOGIN_TIMEOUT_MS', 45000, 15000, 120000);
 const deliveryTimeoutMs = envNumber('DISCORD_DELIVERY_TIMEOUT_MS', 15000, 5000, 60000);
 const httpCommandTimeoutMs = envNumber('DISCORD_HTTP_COMMAND_TIMEOUT_MS', 2000, 500, 2500);
+const apiVerificationTimeoutMs = envNumber('DISCORD_API_VERIFICATION_TIMEOUT_MS', 5000, 1000, 15000);
 const maxChatLength = envNumber('DISCORD_CHAT_MAX_LENGTH', 1800, 100, 1800);
 const port = envNumber('PORT', 3000, 1, 65535);
 
@@ -256,8 +257,10 @@ async function verifyDiscordApi() {
     discordHttp.apiLastError = 'DISCORD_BOT_TOKEN is missing';
     return false;
   }
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), apiVerificationTimeoutMs);
   try {
-    await discordRest.get(Routes.user('@me'));
+    await discordRest.get(Routes.user('@me'), { signal: controller.signal });
     discordHttp.apiVerified = true;
     discordHttp.apiLastError = null;
     return true;
@@ -266,6 +269,8 @@ async function verifyDiscordApi() {
     discordHttp.apiLastError = clean(error?.message || error, 'Discord API verification failed', 300);
     console.error('[Discord] API verification failed:', discordHttp.apiLastError);
     return false;
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
