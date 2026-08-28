@@ -1006,6 +1006,6 @@ setInterval(() => {
 setTimeout(registerCommands, 1000).unref();
 void verifyDiscordApi();
 connectDiscord();
-app.listen(port, () => {
+app.listen(port, '0.0.0.0', () => {
   console.log(`[HTTP] Bridge listening on port ${port}.`);
 });
