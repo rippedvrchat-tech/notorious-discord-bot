@@ -4,6 +4,7 @@ import { createPublicKey, timingSafeEqual, verify as verifySignature } from 'nod
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
+import { GameDig } from 'gamedig';
 import { formatPublicChatMessage, isRelayablePublicChat } from './chat-policy.js';
 import {
   ActionRowBuilder,
@@ -138,6 +139,9 @@ if (!validChannelId(discordChatChannelId) || !validChannelId(discordLogChannelId
 }
 const websiteUrl = process.env.WEBSITE_URL || 'https://ogpill.xyz';
 const gmodJoinUri = process.env.GMOD_JOIN_URI || 'steam://connect/193.243.190.129:27015';
+const gameQueryHost = process.env.GMOD_QUERY_HOST || '193.243.190.129';
+const gameQueryPort = envNumber('GMOD_QUERY_PORT', 27015, 1, 65535);
+const gameQueryIntervalMs = envNumber('GMOD_QUERY_INTERVAL_MS', 5000, 3000, 60000);
 const joinUrl = process.env.JOIN_URL || `${publicBaseUrl}/join`;
 const ASSETS = {
   server: `${publicBaseUrl}/assets/notorious-server.png`,
@@ -660,6 +664,28 @@ function updateBridge(event) {
     Array.isArray(event.playerNames);
 }
 
+async function pollGameServer() {
+  try {
+    const server = await GameDig.query({
+      type: 'garrysmod',
+      host: gameQueryHost,
+      port: gameQueryPort
+    });
+    const changed = updateBridge({
+      type: 'status',
+      map: server.map,
+      players: server.players.length,
+      maxPlayers: server.maxplayers,
+      hostname: server.name,
+      playerNames: server.players.map(player => player.name).filter(Boolean),
+      bridgeVersion: 'gamedig'
+    });
+    if (changed) queueLiveStatusUpdate();
+  } catch (error) {
+    console.error('[GameQuery] Server query failed:', error?.message || error);
+  }
+}
+
 function secretsMatch(provided, expected) {
   if (!provided || !expected) return false;
   const first = Buffer.from(String(provided));
@@ -1025,3 +1051,5 @@ connectDiscord();
 app.listen(port, '0.0.0.0', () => {
   console.log(`[HTTP] Bridge listening on port ${port}.`);
 });
+setInterval(() => void pollGameServer(), gameQueryIntervalMs).unref();
+void pollGameServer();
