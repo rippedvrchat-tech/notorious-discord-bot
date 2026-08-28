@@ -213,6 +213,15 @@ function bridgeIsLive() {
   return bridgeAge() <= bridgeStaleMs;
 }
 
+function serverStatusEmoji() {
+  if (!bridge.lastSignalAt) return '🔴';
+  return bridgeIsLive() ? '🟢' : '🟡';
+}
+
+function liveStatusBoardText() {
+  return `${serverStatusEmoji()} | ${playerCountText()} players`;
+}
+
 function discordIsConnected() {
   return client.isReady() || discordHttp.enabled;
 }
@@ -475,7 +484,7 @@ async function sendLogEmbed(embed, signal) {
 async function sendLiveStatusMessage(signal) {
   if (!discordRest || !validChannelId(discordStatusChannelId)) return false;
   const body = {
-    content: 'Notorious live server status',
+    content: liveStatusBoardText(),
     embeds: [statusEmbed().toJSON()],
     components: serverLinkComponents().map(component => component.toJSON()),
     allowed_mentions: { parse: [] }
