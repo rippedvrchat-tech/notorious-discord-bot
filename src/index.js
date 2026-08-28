@@ -670,8 +670,7 @@ function updateBridge(event) {
   }
   return previous.map !== bridge.map || previous.players !== bridge.players ||
     previous.maxPlayers !== bridge.maxPlayers || previous.round !== bridge.round ||
-    previous.hostname !== bridge.hostname || previous.version !== bridge.version ||
-    Array.isArray(event.playerNames);
+    previous.hostname !== bridge.hostname || previous.version !== bridge.version;
 }
 
 async function pollGameServer() {
