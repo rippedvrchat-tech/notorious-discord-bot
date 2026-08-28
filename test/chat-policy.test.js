@@ -26,6 +26,20 @@ test('blocks commands and private staff chat', () => {
   }
 });
 
-test('formats public chat without enabling Discord mentions', () => {
-  assert.equal(formatPublicChatMessage('Player', 'hello'), '**Player**: hello');
+test('blocks metadata that marks a message as private or staff-only', () => {
+  for (const metadata of [
+    { team: true },
+    { teamChat: true },
+    { private: true },
+    { admin: true },
+    { staff: true },
+    { isAdmin: true },
+    { channel: 'admin_chat' }
+  ]) {
+    assert.equal(isRelayablePublicChat('looks normal', metadata), false, JSON.stringify(metadata));
+  }
+});
+
+test('formats public chat without enabling Discord mentions or markdown injection', () => {
+  assert.equal(formatPublicChatMessage('@Player', 'hello @everyone *all*'), '**@\u200bPlayer**: hello @\u200beveryone \\*all\\*');
 });

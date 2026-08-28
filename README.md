@@ -25,6 +25,15 @@ Discord command bot and signed GMod telemetry bridge for Notorious Pill Pack Hid
 
 `DISCORD_LOG_CHANNEL_ID` is optional, but event logs and `/announce` require it.
 
+Public GMod chat is relayed only when it is ordinary public chat. Commands,
+mentions, team chat, and messages marked private/admin/staff are filtered both
+in the GMod bridge and again in this bot. Discord mentions are disabled and
+relay text is escaped before it is posted.
+
+`DISCORD_DELIVERY_TIMEOUT_MS` and `DISCORD_CHAT_MAX_LENGTH` control delivery
+timeouts and the maximum public chat payload. The bot does not restart the
+GMod server; live server restarts remain a manual operator action.
+
 Secrets belong in the deployment environment and must never be committed to GitHub. Install with `npm install`, then run `npm start`.
 
 ## Health checks

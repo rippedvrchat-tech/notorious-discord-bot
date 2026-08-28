@@ -69,6 +69,7 @@ const gatewayEnabled = String(process.env.DISCORD_GATEWAY_ENABLED || 'true').toL
 const loginRetryMs = Math.max(15000, Number(process.env.DISCORD_RETRY_MS || 30000));
 const loginTimeoutMs = Math.max(15000, Number(process.env.DISCORD_LOGIN_TIMEOUT_MS || 45000));
 const deliveryTimeoutMs = Math.max(5000, Number(process.env.DISCORD_DELIVERY_TIMEOUT_MS || 15000));
+const maxChatLength = Math.max(100, Math.min(1800, Number(process.env.DISCORD_CHAT_MAX_LENGTH || 1800)));
 
 const discordHttp = {
   enabled: false,
@@ -136,6 +137,7 @@ const delivery = {
   lastError: null,
   consecutiveFailures: 0
 };
+const inFlightDeliveries = new Set();
 
 const commands = [
   new SlashCommandBuilder().setName('status').setDescription('Show the live Notorious server dashboard'),
@@ -424,7 +426,7 @@ async function logChannel() {
   return channel?.isTextBased() ? channel : null;
 }
 
-async function sendChatMessage(content) {
+async function sendChatMessage(content, signal) {
   const message = String(content || '').slice(0, 2000);
   if (!message) return false;
   if (client.isReady()) {
@@ -433,11 +435,12 @@ async function sendChatMessage(content) {
   }
   if (!discordRest) return false;
   await discordRest.post(Routes.channelMessages(discordChatChannelId), {
-    body: { content: message, allowed_mentions: { parse: [] } }
+    body: { content: message, allowed_mentions: { parse: [] } },
+    signal
   });
   return true;
 }
-async function sendLogEmbed(embed) {
+async function sendLogEmbed(embed, signal) {
   const channel = await logChannel();
   if (channel) {
     await channel.send({ embeds: [embed], allowedMentions: { parse: [] } });
@@ -446,7 +449,8 @@ async function sendLogEmbed(embed) {
   const channelId = discordLogChannelId;
   if (!channelId || !discordRest) return false;
   await discordRest.post(Routes.channelMessages(channelId), {
-    body: { embeds: [embed.toJSON()], allowed_mentions: { parse: [] } }
+    body: { embeds: [embed.toJSON()], allowed_mentions: { parse: [] } },
+    signal
   });
   return true;
 }
@@ -454,10 +458,24 @@ async function sendLogEmbed(embed) {
 async function trackedDelivery(type, operation) {
   delivery.lastType = clean(type, 'unknown', 64);
   delivery.lastAttemptAt = new Date().toISOString();
+  const deliveryKey = clean(type, 'unknown', 64);
+  if (inFlightDeliveries.has(deliveryKey)) {
+    throw new Error('Discord delivery already in progress');
+  }
+  inFlightDeliveries.add(deliveryKey);
+  let operationPromise;
+  const controller = new AbortController();
+  let timeoutHandle;
   try {
+    operationPromise = Promise.resolve().then(() => operation(controller.signal));
     const sent = await Promise.race([
-      operation(),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('Discord delivery timed out')), deliveryTimeoutMs))
+      operationPromise,
+      new Promise((_, reject) => {
+        timeoutHandle = setTimeout(() => {
+          controller.abort();
+          reject(new Error('Discord delivery timed out'));
+        }, deliveryTimeoutMs);
+      })
     ]);
     if (!sent) throw new Error('Discord delivery is not configured for this message type');
     delivery.lastSuccessAt = new Date().toISOString();
@@ -469,6 +487,15 @@ async function trackedDelivery(type, operation) {
     delivery.lastError = clean(error?.message || error, 'Unknown Discord delivery failure', 300);
     delivery.consecutiveFailures += 1;
     throw error;
+  } finally {
+    if (timeoutHandle) clearTimeout(timeoutHandle);
+    // Keep the key until a timed-out underlying request settles, preventing late
+    // Discord responses from racing a replacement message.
+    if (operationPromise) {
+      operationPromise.finally(() => inFlightDeliveries.delete(deliveryKey)).catch(() => {});
+    } else {
+      inFlightDeliveries.delete(deliveryKey);
+    }
   }
 }
 
@@ -675,13 +702,13 @@ app.post('/gmod/event', async (request, response) => {
     return response.json({ ok: true, received: 'status', bridgeLive: true, delivered: false, transport: 'telemetry' });
   }
   if (event.type === 'chat') {
-    if (!isRelayablePublicChat(event.message)) {
+    if (!isRelayablePublicChat(event.message, event)) {
       return response.json({ ok: true, received: 'chat', bridgeLive: true, delivered: false, filtered: true });
     }
     try {
       const player = clean(event.player, 'Player', 120);
-      const message = clean(event.message, '', 1800);
-      await trackedDelivery('chat', () => sendChatMessage(formatPublicChatMessage(player, message)));
+      const message = clean(event.message, '', maxChatLength);
+      await trackedDelivery('chat', signal => sendChatMessage(formatPublicChatMessage(player, message), signal));
     } catch (error) {
       console.error('[Discord] Chat delivery failed:', error?.message || error);
       return response.status(502).json({ error: 'discord_delivery_failed', received: 'chat', bridgeLive: true });
