@@ -80,6 +80,9 @@ const port = envNumber('PORT', 3000, 1, 65535);
 const discordHttp = {
   enabled: false,
   verified: false,
+  apiVerified: false,
+  apiLastCheckedAt: null,
+  apiLastError: null,
   lastInteractionAt: null,
   publicKey: null
 };
@@ -236,13 +239,34 @@ function liveStatusBoardText() {
 }
 
 function discordIsConnected() {
-  return client.isReady() || discordHttp.enabled;
+  return client.isReady() || (discordHttp.enabled && discordHttp.apiVerified);
 }
 
 function discordConnectionText() {
   if (client.isReady()) return 'Connected by Gateway';
-  if (discordHttp.enabled) return 'Connected by signed HTTP';
+  if (discordHttp.enabled && discordHttp.apiVerified) return 'Connected by signed HTTP';
+  if (discordHttp.enabled) return 'HTTP signing ready; Discord API unavailable';
   return 'Reconnecting';
+}
+
+async function verifyDiscordApi() {
+  discordHttp.apiLastCheckedAt = new Date().toISOString();
+  if (!discordRest) {
+    discordHttp.apiVerified = false;
+    discordHttp.apiLastError = 'DISCORD_BOT_TOKEN is missing';
+    return false;
+  }
+  try {
+    await discordRest.get(Routes.user('@me'));
+    discordHttp.apiVerified = true;
+    discordHttp.apiLastError = null;
+    return true;
+  } catch (error) {
+    discordHttp.apiVerified = false;
+    discordHttp.apiLastError = clean(error?.message || error, 'Discord API verification failed', 300);
+    console.error('[Discord] API verification failed:', discordHttp.apiLastError);
+    return false;
+  }
 }
 
 function publishPresence() {
@@ -548,6 +572,7 @@ async function trackedDelivery(type, operation, timeoutMs = deliveryTimeoutMs) {
   let operationPromise;
   const controller = new AbortController();
   let timeoutHandle;
+  let forcedCleanupHandle;
   try {
     operationPromise = Promise.resolve().then(() => operation(controller.signal));
     const sent = await Promise.race([
@@ -557,6 +582,8 @@ async function trackedDelivery(type, operation, timeoutMs = deliveryTimeoutMs) {
           controller.abort();
           reject(new Error('Discord delivery timed out'));
         }, timeoutMs);
+        forcedCleanupHandle = setTimeout(() => inFlightDeliveries.delete(deliveryKey), timeoutMs + 2000);
+        forcedCleanupHandle.unref?.();
       })
     ]);
     if (!sent) throw new Error('Discord delivery is not configured for this message type');
@@ -574,7 +601,10 @@ async function trackedDelivery(type, operation, timeoutMs = deliveryTimeoutMs) {
     // Keep the key until a timed-out underlying request settles, preventing late
     // Discord responses from racing a replacement message.
     if (operationPromise) {
-      operationPromise.finally(() => inFlightDeliveries.delete(deliveryKey)).catch(() => {});
+      operationPromise.finally(() => {
+        if (forcedCleanupHandle) clearTimeout(forcedCleanupHandle);
+        inFlightDeliveries.delete(deliveryKey);
+      }).catch(() => {});
     } else {
       inFlightDeliveries.delete(deliveryKey);
     }
@@ -762,6 +792,9 @@ app.get('/health', (_request, response) => response.json({
   presenceActivity: presence.activity,
   presenceLastPublishedAt: presence.lastPublishedAt,
   httpInteractionsConfigured: discordHttp.enabled,
+  discordApiVerified: discordHttp.apiVerified,
+  discordApiLastCheckedAt: discordHttp.apiLastCheckedAt,
+  discordApiLastError: discordHttp.apiLastError,
   channelRouting: {
     publicChatChannelId: discordChatChannelId,
     logAndAnnouncementChannelId: discordLogChannelId,
@@ -958,9 +991,11 @@ async function connectDiscord() {
 
 setInterval(() => {
   if (!client.isReady() && !loginInProgress) connectDiscord();
+  void verifyDiscordApi();
 }, 60000).unref();
 
 setTimeout(registerCommands, 1000).unref();
+void verifyDiscordApi();
 connectDiscord();
 app.listen(port, () => {
   console.log(`[HTTP] Bridge listening on port ${port}.`);
