@@ -110,10 +110,13 @@ const COLORS = {
 };
 
 const publicBaseUrl = String(process.env.PUBLIC_BASE_URL || 'https://notorious-discord-bot.onrender.com').replace(/\/+$/, '');
+const validChannelId = value => /^\d{17,20}$/.test(String(value));
 const discordChatChannelId = process.env.DISCORD_CHAT_CHANNEL_ID || '1528106297080156180';
 const discordLogChannelId = process.env.DISCORD_LOG_CHANNEL_ID || '1533995392096796703';
-const validChannelId = value => /^\d{17,20}$/.test(String(value));
-if (!validChannelId(discordChatChannelId) || !validChannelId(discordLogChannelId)) {
+const discordStatusChannelId = process.env.DISCORD_STATUS_CHANNEL_ID || '1537799353056497704';
+let discordStatusMessageId = validChannelId(process.env.DISCORD_STATUS_MESSAGE_ID)
+  ? process.env.DISCORD_STATUS_MESSAGE_ID : null;
+if (!validChannelId(discordChatChannelId) || !validChannelId(discordLogChannelId) || !validChannelId(discordStatusChannelId)) {
   console.error('[Discord] Channel IDs must be valid Discord snowflakes.');
 }
 const websiteUrl = process.env.WEBSITE_URL || 'https://ogpill.xyz';
@@ -148,6 +151,8 @@ const delivery = {
   consecutiveFailures: 0
 };
 const inFlightDeliveries = new Set();
+let liveStatusUpdateRunning = false;
+let liveStatusUpdateQueued = false;
 
 const commands = [
   new SlashCommandBuilder().setName('status').setDescription('Show the live Notorious server dashboard'),
@@ -467,6 +472,46 @@ async function sendLogEmbed(embed, signal) {
   return true;
 }
 
+async function sendLiveStatusMessage(signal) {
+  if (!discordRest || !validChannelId(discordStatusChannelId)) return false;
+  const body = {
+    content: 'Notorious live server status',
+    embeds: [statusEmbed().toJSON()],
+    components: serverLinkComponents().map(component => component.toJSON()),
+    allowed_mentions: { parse: [] }
+  };
+  if (discordStatusMessageId) {
+    try {
+      await discordRest.patch(Routes.channelMessage(discordStatusChannelId, discordStatusMessageId), { body, signal });
+      return true;
+    } catch (error) {
+      if (error?.status !== 404) throw error;
+      discordStatusMessageId = null;
+    }
+  }
+  const created = await discordRest.post(Routes.channelMessages(discordStatusChannelId), { body, signal });
+  if (!created?.id) throw new Error('Discord did not return a live status message ID');
+  discordStatusMessageId = created.id;
+  return true;
+}
+
+function queueLiveStatusUpdate() {
+  liveStatusUpdateQueued = true;
+  if (liveStatusUpdateRunning) return;
+  liveStatusUpdateRunning = true;
+  void (async () => {
+    while (liveStatusUpdateQueued) {
+      liveStatusUpdateQueued = false;
+      try {
+        await trackedDelivery('live_status', signal => sendLiveStatusMessage(signal));
+      } catch (error) {
+        console.error('[Discord] Live status update failed:', error?.message || error);
+      }
+    }
+    liveStatusUpdateRunning = false;
+  })();
+}
+
 async function trackedDelivery(type, operation, timeoutMs = deliveryTimeoutMs) {
   delivery.lastType = clean(type, 'unknown', 64);
   delivery.lastAttemptAt = new Date().toISOString();
@@ -517,6 +562,14 @@ function boundedNumber(value, fallback, minimum, maximum) {
 }
 
 function updateBridge(event) {
+  const previous = {
+    map: bridge.map,
+    players: bridge.players,
+    maxPlayers: bridge.maxPlayers,
+    round: bridge.round,
+    hostname: bridge.hostname,
+    version: bridge.version
+  };
   const now = new Date().toISOString();
   bridge.lastSignalAt = now;
   bridge.lastEventAt = now;
@@ -530,6 +583,10 @@ function updateBridge(event) {
   if (Array.isArray(event.playerNames)) {
     bridge.playerNames = event.playerNames.slice(0, 64).map(name => clean(name, 'Unknown player', 80));
   }
+  return previous.map !== bridge.map || previous.players !== bridge.players ||
+    previous.maxPlayers !== bridge.maxPlayers || previous.round !== bridge.round ||
+    previous.hostname !== bridge.hostname || previous.version !== bridge.version ||
+    Array.isArray(event.playerNames);
 }
 
 function secretsMatch(provided, expected) {
@@ -725,8 +782,9 @@ app.post('/gmod/event', async (request, response) => {
   }
   const eventType = event.type.toLowerCase();
   event.type = eventType;
-  updateBridge(event);
+  const bridgeChanged = updateBridge(event);
   if (eventType === 'status') {
+    if (bridgeChanged) queueLiveStatusUpdate();
     return response.json({ ok: true, received: 'status', bridgeLive: true, delivered: false, transport: 'telemetry' });
   }
   if (eventType === 'chat') {
