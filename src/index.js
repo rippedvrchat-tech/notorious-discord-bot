@@ -235,12 +235,16 @@ function serverStatusEmoji() {
   return bridgeIsLive() ? '🟢' : '🟡';
 }
 
+function websiteStatusEmoji() {
+  return bridgeIsLive() ? '🟢' : '🔴';
+}
+
 function liveStatusBoardText() {
   return `${serverStatusEmoji()} | ${playerCountText()} players`;
 }
 
 function liveStatusChannelName(target) {
-  if (target.name === 'website') return `${serverStatusEmoji()} | Website Online`;
+  if (target.name === 'website') return `${websiteStatusEmoji()} | ogpill.xyz`;
   return liveStatusBoardText();
 }
 
