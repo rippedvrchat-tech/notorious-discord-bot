@@ -112,6 +112,10 @@ const COLORS = {
 const publicBaseUrl = String(process.env.PUBLIC_BASE_URL || 'https://notorious-discord-bot.onrender.com').replace(/\/+$/, '');
 const discordChatChannelId = process.env.DISCORD_CHAT_CHANNEL_ID || '1528106297080156180';
 const discordLogChannelId = process.env.DISCORD_LOG_CHANNEL_ID || '1533995392096796703';
+const validChannelId = value => /^\d{17,20}$/.test(String(value));
+if (!validChannelId(discordChatChannelId) || !validChannelId(discordLogChannelId)) {
+  console.error('[Discord] Channel IDs must be valid Discord snowflakes.');
+}
 const websiteUrl = process.env.WEBSITE_URL || 'https://ogpill.xyz';
 const gmodJoinUri = process.env.GMOD_JOIN_URI || 'steam://connect/193.243.190.129:27015';
 const joinUrl = process.env.JOIN_URL || `${publicBaseUrl}/join`;
@@ -170,7 +174,7 @@ const commands = [
 function clean(value, fallback = 'Unknown', limit = 1000) {
   const raw = String(value ?? fallback)
     .replace(/\u00e2\u20ac[\u201c\u201d\u0093\u0094]/g, '-')
-    .replace(/[\u2013\u2014]/g, '-')
+    .replace(/[\u2010-\u2015\u2212]/g, '-')
     .replace(/[\u0000-\u001f\u007f]/g, ' ')
     .trim();
   return (raw || fallback).slice(0, limit);
@@ -416,7 +420,7 @@ function eventEmbed(event) {
 function announcementEmbed(message, author) {
   return brandedEmbed({
     title: 'Community Announcement',
-    description: clean(message, 'No announcement text.', 1000),
+    description: markdownSafe(message, 'No announcement text.', 1000),
     color: COLORS.pink,
     image: ASSETS.identity
   }).addFields({ name: 'Posted by', value: markdownSafe(author, 'Notorious Staff', 200), inline: true });
@@ -433,6 +437,7 @@ async function logChannel() {
 }
 
 async function sendChatMessage(content, signal) {
+  if (!validChannelId(discordChatChannelId)) return false;
   const message = String(content || '').slice(0, 2000);
   if (!message) return false;
   if (client.isReady()) {
@@ -447,6 +452,7 @@ async function sendChatMessage(content, signal) {
   return true;
 }
 async function sendLogEmbed(embed, signal) {
+  if (!validChannelId(discordLogChannelId)) return false;
   const channel = await logChannel();
   if (channel) {
     await channel.send({ embeds: [embed], allowedMentions: { parse: [] } });
@@ -674,6 +680,10 @@ app.get('/health', (_request, response) => response.json({
   presenceActivity: presence.activity,
   presenceLastPublishedAt: presence.lastPublishedAt,
   httpInteractionsConfigured: discordHttp.enabled,
+  channelRouting: {
+    publicChatChannelId: discordChatChannelId,
+    logAndAnnouncementChannelId: discordLogChannelId
+  },
   lastInteractionAt: discordHttp.lastInteractionAt,
   gmod: bridgeIsLive(),
   server: {

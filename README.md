@@ -30,6 +30,10 @@ mentions, team chat, and messages marked private/admin/staff are filtered both
 in the GMod bridge and again in this bot. Discord mentions are disabled and
 relay text is escaped before it is posted.
 
+Public chat is sent only to `DISCORD_CHAT_CHANNEL_ID`. Event embeds and
+`/announce` are sent only to `DISCORD_LOG_CHANNEL_ID`. Both values are checked
+as Discord channel IDs at startup.
+
 `DISCORD_DELIVERY_TIMEOUT_MS`, `DISCORD_HTTP_COMMAND_TIMEOUT_MS`, and
 `DISCORD_CHAT_MAX_LENGTH` control delivery timeouts and the maximum public chat
 payload. HTTP commands use a short timeout to stay within Discord's response
