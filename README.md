@@ -30,9 +30,11 @@ mentions, team chat, and messages marked private/admin/staff are filtered both
 in the GMod bridge and again in this bot. Discord mentions are disabled and
 relay text is escaped before it is posted.
 
-`DISCORD_DELIVERY_TIMEOUT_MS` and `DISCORD_CHAT_MAX_LENGTH` control delivery
-timeouts and the maximum public chat payload. The bot does not restart the
-GMod server; live server restarts remain a manual operator action.
+`DISCORD_DELIVERY_TIMEOUT_MS`, `DISCORD_HTTP_COMMAND_TIMEOUT_MS`, and
+`DISCORD_CHAT_MAX_LENGTH` control delivery timeouts and the maximum public chat
+payload. HTTP commands use a short timeout to stay within Discord's response
+window. The bot does not restart the GMod server; live server restarts remain a
+manual operator action.
 
 Secrets belong in the deployment environment and must never be committed to GitHub. Install with `npm install`, then run `npm start`.
 

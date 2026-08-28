@@ -54,6 +54,10 @@ app.use(express.json({
 }));
 
 app.get('/join', (_request, response) => response.redirect(302, gmodJoinUri));
+function envNumber(name, fallback, minimum, maximum) {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) ? Math.min(maximum, Math.max(minimum, Math.floor(value))) : fallback;
+}
 const discordRest = process.env.DISCORD_BOT_TOKEN
   ? new REST({ version: '10' }).setToken(process.env.DISCORD_BOT_TOKEN) : null;
 
@@ -64,12 +68,14 @@ const presence = {
   lastPublishedAt: null
 };
 const startedAt = Date.now();
-const bridgeStaleMs = Math.max(45000, Number(process.env.GMOD_STALE_MS || 75000));
+const bridgeStaleMs = envNumber('GMOD_STALE_MS', 75000, 45000, 3600000);
 const gatewayEnabled = String(process.env.DISCORD_GATEWAY_ENABLED || 'true').toLowerCase() !== 'false';
-const loginRetryMs = Math.max(15000, Number(process.env.DISCORD_RETRY_MS || 30000));
-const loginTimeoutMs = Math.max(15000, Number(process.env.DISCORD_LOGIN_TIMEOUT_MS || 45000));
-const deliveryTimeoutMs = Math.max(5000, Number(process.env.DISCORD_DELIVERY_TIMEOUT_MS || 15000));
-const maxChatLength = Math.max(100, Math.min(1800, Number(process.env.DISCORD_CHAT_MAX_LENGTH || 1800)));
+const loginRetryMs = envNumber('DISCORD_RETRY_MS', 30000, 15000, 3600000);
+const loginTimeoutMs = envNumber('DISCORD_LOGIN_TIMEOUT_MS', 45000, 15000, 120000);
+const deliveryTimeoutMs = envNumber('DISCORD_DELIVERY_TIMEOUT_MS', 15000, 5000, 60000);
+const httpCommandTimeoutMs = envNumber('DISCORD_HTTP_COMMAND_TIMEOUT_MS', 2000, 500, 2500);
+const maxChatLength = envNumber('DISCORD_CHAT_MAX_LENGTH', 1800, 100, 1800);
+const port = envNumber('PORT', 3000, 1, 65535);
 
 const discordHttp = {
   enabled: false,
@@ -455,7 +461,7 @@ async function sendLogEmbed(embed, signal) {
   return true;
 }
 
-async function trackedDelivery(type, operation) {
+async function trackedDelivery(type, operation, timeoutMs = deliveryTimeoutMs) {
   delivery.lastType = clean(type, 'unknown', 64);
   delivery.lastAttemptAt = new Date().toISOString();
   const deliveryKey = clean(type, 'unknown', 64);
@@ -474,7 +480,7 @@ async function trackedDelivery(type, operation) {
         timeoutHandle = setTimeout(() => {
           controller.abort();
           reject(new Error('Discord delivery timed out'));
-        }, deliveryTimeoutMs);
+        }, timeoutMs);
       })
     ]);
     if (!sent) throw new Error('Discord delivery is not configured for this message type');
@@ -619,8 +625,8 @@ async function httpCommandResponse(interaction) {
       if (typeof message !== 'string' || !message.trim()) {
         return interactionMessage({ content: 'Announcement text is required.', ephemeral: true });
       }
-      const sent = await trackedDelivery('announcement', () =>
-        sendLogEmbed(announcementEmbed(message, interactionUserName(interaction))));
+      const sent = await trackedDelivery('announcement', signal =>
+        sendLogEmbed(announcementEmbed(message, interactionUserName(interaction)), signal), httpCommandTimeoutMs);
       return interactionMessage({ content: sent
         ? 'Announcement sent to the configured Notorious log channel.' : 'Announcement could not be sent.', ephemeral: true });
     }
@@ -707,11 +713,13 @@ app.post('/gmod/event', async (request, response) => {
   if (!event || typeof event.type !== 'string' || !/^[a-z0-9_]{1,64}$/i.test(event.type)) {
     return response.status(400).json({ error: 'invalid_event' });
   }
+  const eventType = event.type.toLowerCase();
+  event.type = eventType;
   updateBridge(event);
-  if (event.type === 'status') {
+  if (eventType === 'status') {
     return response.json({ ok: true, received: 'status', bridgeLive: true, delivered: false, transport: 'telemetry' });
   }
-  if (event.type === 'chat') {
+  if (eventType === 'chat') {
     if (!isRelayablePublicChat(event.message, event)) {
       return response.json({ ok: true, received: 'chat', bridgeLive: true, delivered: false, filtered: true });
     }
@@ -726,7 +734,7 @@ app.post('/gmod/event', async (request, response) => {
     return response.json({ ok: true, received: 'chat', bridgeLive: true, delivered: true, transport: 'bot' });
   }
   return response.json({
-    ok: true, received: clean(event.type, 'server_event', 64), bridgeLive: true,
+    ok: true, received: clean(eventType, 'server_event', 64), bridgeLive: true,
     delivered: false, transport: 'discordtoolkit'
   });
 });
@@ -790,7 +798,8 @@ async function handleCommand(interaction) {
     case 'announce': {
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       const message = interaction.options.getString('message', true);
-      const sent = await sendLogEmbed(announcementEmbed(message, interaction.user.tag));
+      const sent = await trackedDelivery('announcement', signal =>
+        sendLogEmbed(announcementEmbed(message, interaction.user.tag), signal));
       return interaction.editReply(sent
         ? 'Announcement sent to the configured Notorious log channel.'
         : 'Announcement could not be sent because the log channel is unavailable.');
@@ -855,6 +864,6 @@ setInterval(() => {
 
 setTimeout(registerCommands, 1000).unref();
 connectDiscord();
-app.listen(Number(process.env.PORT || 3000), () => {
-  console.log(`[HTTP] Bridge listening on port ${process.env.PORT || 3000}.`);
+app.listen(port, () => {
+  console.log(`[HTTP] Bridge listening on port ${port}.`);
 });
