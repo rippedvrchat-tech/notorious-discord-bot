@@ -142,6 +142,7 @@ const gmodJoinUri = process.env.GMOD_JOIN_URI || 'steam://connect/193.243.190.12
 const gameQueryHost = process.env.GMOD_QUERY_HOST || '193.243.190.129';
 const gameQueryPort = envNumber('GMOD_QUERY_PORT', 27015, 1, 65535);
 const gameQueryIntervalMs = envNumber('GMOD_QUERY_INTERVAL_MS', 5000, 3000, 60000);
+const directQueryEnabled = process.env.GMOD_DIRECT_QUERY_ENABLED !== 'false';
 const joinUrl = process.env.JOIN_URL || `${publicBaseUrl}/join`;
 const ASSETS = {
   server: `${publicBaseUrl}/assets/notorious-server.png`,
@@ -894,10 +895,10 @@ async function handleGmodEvent(request, response) {
   const bridgeChanged = updateBridge(event);
   const playerCountEvent = eventType === 'player_join' || eventType === 'player_leave';
   if (eventType === 'status') {
-    if (bridgeChanged) queueLiveStatusUpdate();
+    if (bridgeChanged && !directQueryEnabled) queueLiveStatusUpdate();
     return response.json({ ok: true, received: 'status', bridgeLive: true, delivered: false, transport: 'telemetry' });
   }
-  if (playerCountEvent) queueLiveStatusUpdate();
+  if (playerCountEvent && !directQueryEnabled) queueLiveStatusUpdate();
   if (eventType === 'chat') {
     if (!isRelayablePublicChat(event.message, event)) {
       return response.json({ ok: true, received: 'chat', bridgeLive: true, delivered: false, filtered: true });
