@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { isRelayablePublicChat } from '../src/chat-policy.js';
+import { formatPublicChatMessage, isRelayablePublicChat } from '../src/chat-policy.js';
 
 test('allows ordinary public chat', () => {
-  for (const message of ['hello', 'hello everyone', '  normal message  ', '/help me with the map']) {
+  for (const message of ['hello', 'hello everyone', '  normal message  ']) {
     assert.equal(isRelayablePublicChat(message), true, message);
   }
 });
@@ -16,10 +16,16 @@ test('blocks commands and private staff chat', () => {
     ' !kick player',
     '@secret',
     ' @ staff only',
+    '/help me with the map',
+    '/some-admin-command',
     '/asay',
     '/asay hidden',
     '/ASAY\tprivate'
   ]) {
     assert.equal(isRelayablePublicChat(message), false, message);
   }
+});
+
+test('formats public chat without enabling Discord mentions', () => {
+  assert.equal(formatPublicChatMessage('Player', 'hello'), '**Player**: hello');
 });
