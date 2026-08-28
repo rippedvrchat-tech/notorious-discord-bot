@@ -8,7 +8,11 @@ export function isRelayablePublicChat(value, metadata = {}) {
       ['team', 'private', 'admin', 'staff', 'admin_chat', 'staff_chat'].includes(String(metadata.channel ?? '').toLowerCase())
     ) return false;
   }
-  const normalized = String(value ?? '').trim().toLowerCase();
+  const normalized = String(value ?? '')
+    .normalize('NFKC')
+    .replace(/[\u200b-\u200d\ufeff]/g, '')
+    .trim()
+    .toLowerCase();
   if (!normalized) return false;
   if (normalized.startsWith('!')) return false;
   if (normalized.startsWith('/')) return false;

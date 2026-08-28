@@ -580,7 +580,17 @@ function interactionMessage({ embed, content, components = [], ephemeral = false
   return { type: 4, data };
 }
 
+function interactionTargetsThisBot(interaction) {
+  const applicationId = String(interaction?.application_id || '');
+  const guildId = String(interaction?.guild_id || '');
+  return applicationId === String(process.env.DISCORD_APPLICATION_ID || '') &&
+    guildId === String(process.env.DISCORD_GUILD_ID || '');
+}
+
 async function httpCommandResponse(interaction) {
+  if (!interactionTargetsThisBot(interaction)) {
+    return interactionMessage({ content: 'This interaction is not addressed to this server.', ephemeral: true });
+  }
   const name = clean(interaction.data?.name, '', 64).toLowerCase();
   if (['announce', 'serverinfo'].includes(name) && !interactionHasManageGuild(interaction)) {
     return interactionMessage({ content: 'You need Manage Server permission to use this command.', ephemeral: true });

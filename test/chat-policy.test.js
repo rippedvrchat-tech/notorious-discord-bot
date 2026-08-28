@@ -21,6 +21,8 @@ test('blocks commands and private staff chat', () => {
     '/asay',
     '/asay hidden',
     '/ASAY\tprivate'
+    , '\u200b!hidden-command'
+    , '！admin command'
   ]) {
     assert.equal(isRelayablePublicChat(message), false, message);
   }
