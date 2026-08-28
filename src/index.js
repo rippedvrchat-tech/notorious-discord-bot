@@ -260,7 +260,13 @@ async function verifyDiscordApi() {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), apiVerificationTimeoutMs);
   try {
-    await discordRest.get(Routes.user('@me'), { signal: controller.signal });
+    await Promise.race([
+      discordRest.get(Routes.user('@me'), { signal: controller.signal }),
+      new Promise((_, reject) => setTimeout(
+        () => reject(new Error(`Discord API verification timed out after ${apiVerificationTimeoutMs}ms`)),
+        apiVerificationTimeoutMs
+      ))
+    ]);
     discordHttp.apiVerified = true;
     discordHttp.apiLastError = null;
     return true;
