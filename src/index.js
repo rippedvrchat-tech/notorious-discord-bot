@@ -113,10 +113,23 @@ const publicBaseUrl = String(process.env.PUBLIC_BASE_URL || 'https://notorious-d
 const validChannelId = value => /^\d{17,20}$/.test(String(value));
 const discordChatChannelId = process.env.DISCORD_CHAT_CHANNEL_ID || '1528106297080156180';
 const discordLogChannelId = process.env.DISCORD_LOG_CHANNEL_ID || '1533995392096796703';
-const discordStatusChannelId = process.env.DISCORD_STATUS_CHANNEL_ID || '1537799353056497704';
-let discordStatusMessageId = validChannelId(process.env.DISCORD_STATUS_MESSAGE_ID)
-  ? process.env.DISCORD_STATUS_MESSAGE_ID : null;
-if (!validChannelId(discordChatChannelId) || !validChannelId(discordLogChannelId) || !validChannelId(discordStatusChannelId)) {
+const discordStatusTargets = [
+  {
+    name: 'game',
+    channelId: process.env.DISCORD_STATUS_CHANNEL_ID || '1537799353056497704',
+    messageId: process.env.DISCORD_STATUS_MESSAGE_ID
+  },
+  {
+    name: 'website',
+    channelId: process.env.DISCORD_WEBSITE_STATUS_CHANNEL_ID || '1537799281975627846',
+    messageId: process.env.DISCORD_WEBSITE_STATUS_MESSAGE_ID
+  }
+].map(target => ({
+  ...target,
+  messageId: validChannelId(target.messageId) ? target.messageId : null
+}));
+if (!validChannelId(discordChatChannelId) || !validChannelId(discordLogChannelId) ||
+    discordStatusTargets.some(target => !validChannelId(target.channelId))) {
   console.error('[Discord] Channel IDs must be valid Discord snowflakes.');
 }
 const websiteUrl = process.env.WEBSITE_URL || 'https://ogpill.xyz';
@@ -482,25 +495,28 @@ async function sendLogEmbed(embed, signal) {
 }
 
 async function sendLiveStatusMessage(signal) {
-  if (!discordRest || !validChannelId(discordStatusChannelId)) return false;
+  if (!discordRest || !discordStatusTargets.length) return false;
   const body = {
     content: liveStatusBoardText(),
     embeds: [statusEmbed().toJSON()],
     components: serverLinkComponents().map(component => component.toJSON()),
     allowed_mentions: { parse: [] }
   };
-  if (discordStatusMessageId) {
-    try {
-      await discordRest.patch(Routes.channelMessage(discordStatusChannelId, discordStatusMessageId), { body, signal });
-      return true;
-    } catch (error) {
-      if (error?.status !== 404) throw error;
-      discordStatusMessageId = null;
+  for (const target of discordStatusTargets) {
+    if (!validChannelId(target.channelId)) continue;
+    if (target.messageId) {
+      try {
+        await discordRest.patch(Routes.channelMessage(target.channelId, target.messageId), { body, signal });
+        continue;
+      } catch (error) {
+        if (error?.status !== 404) throw error;
+        target.messageId = null;
+      }
     }
+    const created = await discordRest.post(Routes.channelMessages(target.channelId), { body, signal });
+    if (!created?.id) throw new Error(`Discord did not return a ${target.name} status message ID`);
+    target.messageId = created.id;
   }
-  const created = await discordRest.post(Routes.channelMessages(discordStatusChannelId), { body, signal });
-  if (!created?.id) throw new Error('Discord did not return a live status message ID');
-  discordStatusMessageId = created.id;
   return true;
 }
 
@@ -749,8 +765,11 @@ app.get('/health', (_request, response) => response.json({
   channelRouting: {
     publicChatChannelId: discordChatChannelId,
     logAndAnnouncementChannelId: discordLogChannelId,
-    statusChannelId: discordStatusChannelId,
-    statusMessageIdConfigured: Boolean(discordStatusMessageId)
+    statusChannels: discordStatusTargets.map(target => ({
+      name: target.name,
+      channelId: target.channelId,
+      messageIdConfigured: Boolean(target.messageId)
+    }))
   },
   lastInteractionAt: discordHttp.lastInteractionAt,
   gmod: bridgeIsLive(),

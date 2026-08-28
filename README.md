@@ -34,9 +34,10 @@ Public chat is sent only to `DISCORD_CHAT_CHANNEL_ID`. Event embeds and
 `/announce` are sent only to `DISCORD_LOG_CHANNEL_ID`. Both values are checked
 as Discord channel IDs at startup.
 
-The live player-count embed is maintained in `DISCORD_STATUS_CHANNEL_ID`.
-The bot edits one reusable status message whenever the heartbeat reports a
-changed player count or server state, so the channel is not flooded.
+The live player-count embed is maintained in both `DISCORD_STATUS_CHANNEL_ID`
+and `DISCORD_WEBSITE_STATUS_CHANNEL_ID`. The bot edits one reusable status
+message in each channel whenever the heartbeat reports a changed player count
+or server state, so neither channel is flooded.
 
 `DISCORD_DELIVERY_TIMEOUT_MS`, `DISCORD_HTTP_COMMAND_TIMEOUT_MS`, and
 `DISCORD_CHAT_MAX_LENGTH` control delivery timeouts and the maximum public chat
