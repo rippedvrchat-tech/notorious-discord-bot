@@ -243,9 +243,18 @@ function liveStatusBoardText() {
   return `${serverStatusEmoji()} | ${playerCountText()} players`;
 }
 
-function liveStatusChannelName(target) {
-  if (target.name === 'website') return `${websiteStatusEmoji()} | ogpill.xyz`;
+function liveStatusChannelName(target, websiteOnline = bridgeIsLive()) {
+  if (target.name === 'website') return `${websiteOnline ? '🟢' : '🔴'} | ogpill.xyz`;
   return liveStatusBoardText();
+}
+
+async function websiteIsOnline(signal) {
+  try {
+    const response = await fetch(websiteUrl, { method: 'HEAD', signal });
+    return response.ok;
+  } catch {
+    return false;
+  }
 }
 
 function discordIsConnected() {
@@ -540,10 +549,11 @@ async function sendLogEmbed(embed, signal) {
 
 async function sendLiveStatusMessage(signal) {
   if (!discordRest || !discordStatusTargets.length) return false;
+  const websiteOnline = await websiteIsOnline(signal);
   for (const target of discordStatusTargets) {
     if (!validChannelId(target.channelId)) continue;
     await discordRest.patch(Routes.channel(target.channelId), {
-      body: { name: liveStatusChannelName(target) },
+      body: { name: liveStatusChannelName(target, websiteOnline) },
       signal
     });
   }
@@ -856,10 +866,12 @@ async function handleGmodEvent(request, response) {
   const eventType = event.type.toLowerCase();
   event.type = eventType;
   const bridgeChanged = updateBridge(event);
+  const playerCountEvent = eventType === 'player_join' || eventType === 'player_leave';
   if (eventType === 'status') {
     if (bridgeChanged) queueLiveStatusUpdate();
     return response.json({ ok: true, received: 'status', bridgeLive: true, delivered: false, transport: 'telemetry' });
   }
+  if (playerCountEvent) queueLiveStatusUpdate();
   if (eventType === 'chat') {
     if (!isRelayablePublicChat(event.message, event)) {
       return response.json({ ok: true, received: 'chat', bridgeLive: true, delivered: false, filtered: true });
