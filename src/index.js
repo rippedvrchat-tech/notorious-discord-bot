@@ -739,7 +739,9 @@ app.get('/health', (_request, response) => response.json({
   httpInteractionsConfigured: discordHttp.enabled,
   channelRouting: {
     publicChatChannelId: discordChatChannelId,
-    logAndAnnouncementChannelId: discordLogChannelId
+    logAndAnnouncementChannelId: discordLogChannelId,
+    statusChannelId: discordStatusChannelId,
+    statusMessageIdConfigured: Boolean(discordStatusMessageId)
   },
   lastInteractionAt: discordHttp.lastInteractionAt,
   gmod: bridgeIsLive(),
