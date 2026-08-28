@@ -901,7 +901,7 @@ async function handleGmodEvent(request, response) {
   }
   const eventType = event.type.toLowerCase();
   event.type = eventType;
-  const bridgeChanged = updateBridge(event);
+  const bridgeChanged = directQueryEnabled ? false : updateBridge(event);
   const playerCountEvent = eventType === 'player_join' || eventType === 'player_leave';
   if (eventType === 'status') {
     if (bridgeChanged && !directQueryEnabled) queueLiveStatusUpdate();
