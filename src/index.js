@@ -239,6 +239,11 @@ function liveStatusBoardText() {
   return `${serverStatusEmoji()} | ${playerCountText()} players`;
 }
 
+function liveStatusChannelName(target) {
+  if (target.name === 'website') return `${serverStatusEmoji()} | Website Online`;
+  return liveStatusBoardText();
+}
+
 function discordIsConnected() {
   return client.isReady() || (discordHttp.enabled && discordHttp.apiVerified);
 }
@@ -531,26 +536,12 @@ async function sendLogEmbed(embed, signal) {
 
 async function sendLiveStatusMessage(signal) {
   if (!discordRest || !discordStatusTargets.length) return false;
-  const body = {
-    content: liveStatusBoardText(),
-    embeds: [statusEmbed().toJSON()],
-    components: serverLinkComponents().map(component => component.toJSON()),
-    allowed_mentions: { parse: [] }
-  };
   for (const target of discordStatusTargets) {
     if (!validChannelId(target.channelId)) continue;
-    if (target.messageId) {
-      try {
-        await discordRest.patch(Routes.channelMessage(target.channelId, target.messageId), { body, signal });
-        continue;
-      } catch (error) {
-        if (error?.status !== 404) throw error;
-        target.messageId = null;
-      }
-    }
-    const created = await discordRest.post(Routes.channelMessages(target.channelId), { body, signal });
-    if (!created?.id) throw new Error(`Discord did not return a ${target.name} status message ID`);
-    target.messageId = created.id;
+    await discordRest.patch(Routes.channel(target.channelId), {
+      body: { name: liveStatusChannelName(target) },
+      signal
+    });
   }
   return true;
 }
@@ -812,7 +803,7 @@ app.get('/health', (_request, response) => response.json({
     statusChannels: discordStatusTargets.map(target => ({
       name: target.name,
       channelId: target.channelId,
-      messageIdConfigured: Boolean(target.messageId)
+      messageIdConfigured: false
     }))
   },
   lastInteractionAt: discordHttp.lastInteractionAt,
@@ -837,10 +828,14 @@ app.get('/health', (_request, response) => response.json({
   },
 }));
 
-app.post('/gmod/event', async (request, response) => {
+async function handleGmodEvent(request, response) {
+  const localTrusted = request.path === '/gmod/event-local' &&
+    (request.ip === '127.0.0.1' || request.ip === '::1' || request.ip === '::ffff:127.0.0.1');
+  if (!localTrusted) {
   if (!process.env.G2D_SHARED_SECRET) return response.status(503).json({ error: 'bridge_not_configured' });
   if (!secretsMatch(request.get('x-notorious-secret'), process.env.G2D_SHARED_SECRET)) {
     return response.status(401).json({ error: 'unauthorized' });
+  }
   }
   let parsedBody = request.body;
   if (Buffer.isBuffer(parsedBody) || typeof parsedBody === 'string') {
@@ -879,7 +874,10 @@ app.post('/gmod/event', async (request, response) => {
     ok: true, received: clean(eventType, 'server_event', 64), bridgeLive: true,
     delivered: false, transport: 'discordtoolkit'
   });
-});
+}
+
+app.post('/gmod/event', handleGmodEvent);
+app.post('/gmod/event-local', handleGmodEvent);
 
 app.use((error, _request, response, _next) => {
   console.error('[HTTP] Request failed:', error.message);
