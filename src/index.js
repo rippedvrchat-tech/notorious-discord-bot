@@ -748,8 +748,8 @@ async function sendCriticalAlert(event, signal) {
 
 async function sendLiveStatusMessage(signal) {
   if (!discordRest || !discordStatusTargets.length) return false;
-  const websiteOnline = await websiteIsOnline(signal);
   for (const target of discordStatusTargets.filter(target => validChannelId(target.channelId))) {
+    const websiteOnline = target.name === 'website' ? await websiteIsOnline(signal) : false;
     await patchStatusChannel(target.channelId, liveStatusChannelName(target, websiteOnline), signal);
   }
   return true;
@@ -886,7 +886,7 @@ async function pollGameServer() {
       playerNames: server.players.map(player => player.name).filter(Boolean),
       bridgeVersion: 'gamedig'
     });
-    if (changed && gameQueryInitialized) queueLiveStatusUpdate();
+    if (changed) queueLiveStatusUpdate();
     gameQueryInitialized = true;
     void updateServerAvailabilityAlert();
   } catch (error) {
