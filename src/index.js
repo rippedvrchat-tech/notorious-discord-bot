@@ -614,9 +614,9 @@ async function sendCriticalAlert(event, signal) {
 async function sendLiveStatusMessage(signal) {
   if (!discordRest || !discordStatusTargets.length) return false;
   const websiteOnline = await websiteIsOnline(signal);
-  await Promise.all(discordStatusTargets
-    .filter(target => validChannelId(target.channelId))
-    .map(target => patchStatusChannel(target.channelId, liveStatusChannelName(target, websiteOnline), signal)));
+  for (const target of discordStatusTargets.filter(target => validChannelId(target.channelId))) {
+    await patchStatusChannel(target.channelId, liveStatusChannelName(target, websiteOnline), signal);
+  }
   return true;
 }
 
