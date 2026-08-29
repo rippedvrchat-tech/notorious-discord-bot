@@ -172,6 +172,7 @@ const bridge = {
 };
 let gameQueryInFlight = false;
 let gameQuerySequence = 0;
+let gameQueryInitialized = false;
 
 const delivery = {
   lastType: null,
@@ -809,7 +810,8 @@ async function pollGameServer() {
       playerNames: server.players.map(player => player.name).filter(Boolean),
       bridgeVersion: 'gamedig'
     });
-    if (changed) queueLiveStatusUpdate();
+    if (changed && gameQueryInitialized) queueLiveStatusUpdate();
+    gameQueryInitialized = true;
   } catch (error) {
     console.error('[GameQuery] Server query failed:', error?.message || error);
     setTimeout(() => void pollGameServer(), 2000).unref();
