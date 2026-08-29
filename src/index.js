@@ -137,6 +137,7 @@ const discordStatusTargets = [
 const statusUpdateCooldownMs = envNumber('DISCORD_STATUS_UPDATE_COOLDOWN_MS', 15000, 5000, 120000);
 const statusLastNames = new Map();
 const statusNextAllowedAt = new Map();
+const statusLastContents = new Map();
 if (!validChannelId(discordChatChannelId) || !validChannelId(discordLogChannelId) ||
     discordStatusTargets.some(target => !validChannelId(target.channelId))) {
   console.error('[Discord] Channel IDs must be valid Discord snowflakes.');
@@ -316,6 +317,27 @@ async function patchStatusChannel(channelId, name, signal) {
   }
   statusLastNames.set(channelId, name);
   statusNextAllowedAt.set(channelId, Date.now() + statusUpdateCooldownMs);
+}
+
+function liveStatusMessageContent(target, websiteOnline) {
+  if (target.name === 'website') return `${websiteOnline ? '🟢' : '🔴'} | **ogpill.xyz**`;
+  return `${serverStatusEmoji()} | **${playerCountText()} players**\nMap: **${currentMapName()}**`;
+}
+
+async function patchStatusMessage(channelId, messageId, content, signal) {
+  if (statusLastContents.get(messageId) === content) return;
+  const response = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages/${messageId}`, {
+    method: 'PATCH',
+    headers: {
+      Authorization: `Bot ${process.env.DISCORD_BOT_TOKEN}`,
+      'Content-Type': 'application/json',
+      'User-Agent': discordUserAgent
+    },
+    body: JSON.stringify({ content, allowed_mentions: { parse: [] } }),
+    signal
+  });
+  if (!response.ok) throw new Error(`Discord status message update failed with HTTP ${response.status}`);
+  statusLastContents.set(messageId, content);
 }
 
 function discordIsConnected() {
@@ -630,7 +652,12 @@ async function sendLiveStatusMessage(signal) {
   if (!discordRest || !discordStatusTargets.length) return false;
   const websiteOnline = await websiteIsOnline(signal);
   for (const target of discordStatusTargets.filter(target => validChannelId(target.channelId))) {
-    await patchStatusChannel(target.channelId, liveStatusChannelName(target, websiteOnline), signal);
+    const content = liveStatusMessageContent(target, websiteOnline);
+    if (target.messageId) {
+      await patchStatusMessage(target.channelId, target.messageId, content, signal);
+    } else {
+      await patchStatusChannel(target.channelId, liveStatusChannelName(target, websiteOnline), signal);
+    }
   }
   return true;
 }
