@@ -183,6 +183,23 @@ let lastAvailabilityAlerted = 'unknown';
 let availabilityAlertRetry = null;
 let authoritativeRosterAt = 0;
 
+const operations = {
+  rounds: 0,
+  kills: 0,
+  maps: [],
+  peakPlayers: 0,
+  health: {
+    lastAt: null,
+    addonCount: null,
+    missingAddons: [],
+    luaMemoryKb: null,
+    entities: null,
+    tickInterval: null,
+    abuseProtection: 'Physgun protection enabled'
+  },
+  lastHealthReportAt: null
+};
+
 const delivery = {
   lastType: null,
   lastAttemptAt: null,
@@ -202,6 +219,7 @@ const commands = [
   new SlashCommandBuilder().setName('status').setDescription('Show the live Notorious server dashboard'),
   new SlashCommandBuilder().setName('players').setDescription('Show the live player count and player list'),
   new SlashCommandBuilder().setName('refreshplayers').setDescription('Request an immediate player roster refresh'),
+  new SlashCommandBuilder().setName('stats').setDescription('Show Notorious server statistics'),
   new SlashCommandBuilder().setName('map').setDescription('Show the current Garry\'s Mod map'),
   new SlashCommandBuilder().setName('round').setDescription('Show the current Pill Pack round state'),
   new SlashCommandBuilder().setName('uptime').setDescription('Show bot uptime and bridge freshness'),
@@ -599,7 +617,7 @@ function helpEmbed() {
     color: COLORS.pink,
     image: ASSETS.help
   }).addFields(
-    { name: 'Live server', value: '`/status`  `/players`  `/refreshplayers`  `/map`  `/round`  `/uptime`', inline: false },
+    { name: 'Live server', value: '`/status`  `/players`  `/refreshplayers`  `/stats`  `/map`  `/round`  `/uptime`', inline: false },
     { name: 'Community', value: '`/help`', inline: false },
     { name: 'Staff', value: '`/announce`  `/serverinfo`\nStaff commands require Manage Server permission.', inline: false },
     { name: 'Connection model', value: 'Server data comes from a signed heartbeat sent by the live GMod server.', inline: false }
@@ -633,6 +651,67 @@ function connectionField() {
   return { name: 'Connect', value: `steam://connect/${gameQueryHost}:${gameQueryPort}`, inline: false };
 }
 
+function statsEmbed() {
+  const recentMaps = operations.maps.length ? operations.maps.slice(-5).reverse().join('\n') : 'No map history this session.';
+  return brandedEmbed({
+    title: 'Notorious Server Record',
+    description: 'A running record of this server session, kept close to the action.',
+    color: bridgeIsLive() ? COLORS.blue : COLORS.amber,
+    image: ASSETS.server
+  }).addFields(
+    { name: 'Current players', value: playerCountText(), inline: true },
+    { name: 'Peak players', value: `${operations.peakPlayers} / ${bridge.maxPlayers || '?'}`, inline: true },
+    { name: 'Rounds recorded', value: String(operations.rounds), inline: true },
+    { name: 'Eliminations', value: String(operations.kills), inline: true },
+    { name: 'Recent maps', value: markdownSafe(recentMaps, 'No map history this session.', 900), inline: false },
+    { name: 'Server uptime', value: duration(Date.now() - startedAt), inline: true },
+    { name: 'Last refresh', value: discordTime(bridge.lastSignalAt), inline: true },
+    connectionField()
+  );
+}
+
+function healthReportEmbed() {
+  const health = operations.health;
+  const missing = health.missingAddons.length ? health.missingAddons.join(', ') : 'None detected';
+  return brandedEmbed({
+    title: 'Notorious Systems Check',
+    description: 'A scheduled systems check from the live server.',
+    color: health.missingAddons.length ? COLORS.amber : COLORS.green,
+    image: ASSETS.identity
+  }).addFields(
+    { name: 'GMod bridge', value: bridgeIsLive() ? 'Connected' : 'Signal stale', inline: true },
+    { name: 'Protection', value: health.abuseProtection, inline: true },
+    { name: 'Loaded addons', value: health.addonCount == null ? 'Not reported' : String(health.addonCount), inline: true },
+    { name: 'Lua memory', value: health.luaMemoryKb == null ? 'Not reported' : `${health.luaMemoryKb.toLocaleString()} KB`, inline: true },
+    { name: 'Entities', value: health.entities == null ? 'Not reported' : String(health.entities), inline: true },
+    { name: 'Tick interval', value: health.tickInterval == null ? 'Not reported' : `${health.tickInterval}s`, inline: true },
+    { name: 'Missing systems', value: markdownSafe(missing, 'None detected', 900), inline: false },
+    { name: 'Checked', value: discordTime(health.lastAt), inline: true }
+  );
+}
+
+async function publishHealthReport() {
+  try {
+    const sent = await trackedDelivery('scheduled_health_report', signal => sendLogEmbed(healthReportEmbed(), signal));
+    if (sent) operations.lastHealthReportAt = new Date().toISOString();
+  } catch (error) {
+    console.error('[Discord] Scheduled systems check failed:', error?.message || error);
+  }
+}
+
+function htmlEscape(value) {
+  return String(value ?? '').replace(/[&<>"']/g, character => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  })[character]);
+}
+
+function statsPage() {
+  const live = bridgeIsLive();
+  const maps = operations.maps.length ? operations.maps.slice(-8).reverse() : ['No maps recorded this session'];
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Notorious Server Record</title><style>
+  :root{color-scheme:dark;--ink:#08090d;--panel:#111521;--line:#263044;--blue:#35b9ff;--pink:#ff4fd8;--muted:#9aa7ba}*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 15% 0%,#172942 0,#08090d 48%);color:#f5f7fb;font:16px system-ui,-apple-system,Segoe UI,sans-serif}main{max-width:960px;margin:0 auto;padding:48px 20px}.eyebrow{color:var(--blue);letter-spacing:.2em;font-size:12px;font-weight:700}.title{font-size:clamp(34px,7vw,72px);line-height:.95;margin:14px 0 12px;letter-spacing:-.06em}.copy{color:var(--muted);max-width:600px}.signal{display:inline-flex;align-items:center;gap:9px;margin:24px 0 28px;padding:9px 13px;border:1px solid var(--line);border-radius:999px;background:#0d111b}.dot{width:9px;height:9px;border-radius:50%;background:${live ? '#4ade80' : '#fb7185'};box-shadow:0 0 14px ${live ? '#4ade80' : '#fb7185'}}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}.card{background:linear-gradient(145deg,#151b2a,#0e121c);border:1px solid var(--line);border-radius:15px;padding:18px}.label{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.1em}.value{font-size:28px;font-weight:750;margin-top:8px}.wide{margin-top:12px}.maps{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}.map{border:1px solid #33445e;border-radius:999px;padding:7px 11px;color:#c9d7ea}.foot{margin-top:28px;color:#718097;font-size:12px}</style></head><body><main><div class="eyebrow">NOTORIOUS SERVER NETWORK</div><h1 class="title">The record of the hunt.</h1><p class="copy">Live numbers and session history from the Notorious Pill Pack Hide &amp; Seek server.</p><div class="signal"><span class="dot"></span>${live ? 'Server signal is live' : 'Server signal is stale'}</div><section class="grid"><div class="card"><div class="label">Players</div><div class="value">${htmlEscape(playerCountText())}</div></div><div class="card"><div class="label">Peak</div><div class="value">${htmlEscape(`${operations.peakPlayers} / ${bridge.maxPlayers || '?'}`)}</div></div><div class="card"><div class="label">Rounds</div><div class="value">${operations.rounds}</div></div><div class="card"><div class="label">Eliminations</div><div class="value">${operations.kills}</div></div></section><section class="card wide"><div class="label">Current map</div><div class="value">${htmlEscape(bridge.map)}</div><div class="label" style="margin-top:18px">Recently played</div><div class="maps">${maps.map(map => '<span class="map">' + htmlEscape(map) + '</span>').join('')}</div></section><div class="foot">Session uptime: ${htmlEscape(duration(Date.now() - startedAt))} · Last refresh: ${htmlEscape(discordTime(bridge.lastSignalAt))}</div></main></body></html>`;
+}
+
 function eventEmbed(event) {
   const type = clean(event.type, 'server_event', 64).toLowerCase();
   const labels = {
@@ -655,7 +734,10 @@ function eventEmbed(event) {
   const descriptions = {
     player_join: `**${playerName}** joined the server.`,
     player_leave: `**${playerName}** left the server.`,
-    player_death: `**${playerName}** was eliminated.`
+    player_death: `**${playerName}** was eliminated.`,
+    round_start: 'The next hunt is underway.',
+    round_end: 'The round has come to a close.',
+    map_change: `The server moved to **${markdownSafe(event.map, 'an unknown map', 128)}**.`
   };
   const embed = brandedEmbed({
     title: labels[type] || clean(type.replaceAll('_', ' '), 'Server Event', 256),
@@ -921,6 +1003,7 @@ function updateBridge(event) {
   bridge.players = boundedNumber(event.players, bridge.players, 0, 256);
   bridge.maxPlayers = boundedNumber(event.maxPlayers, bridge.maxPlayers, 0, 256);
   bridge.peakPlayers = Math.max(bridge.peakPlayers, bridge.players);
+  operations.peakPlayers = Math.max(operations.peakPlayers, bridge.players);
   if (Array.isArray(event.playerNames)) {
     bridge.playerNames = event.playerNames.slice(0, 64).map(name => clean(name, 'Unknown player', 80));
   }
@@ -1080,6 +1163,8 @@ async function httpCommandResponse(interaction) {
     case 'refreshplayers':
       void pollGameServer().finally(() => queueLiveStatusUpdate());
       return interactionMessage({ content: 'Player roster refresh requested. The live embed will update when the server query completes.', components: serverLinkComponents() });
+    case 'stats':
+      return interactionMessage({ embed: statsEmbed(), components: serverLinkComponents() });
     case 'map':
       return interactionMessage({
         content: `Current map: ${currentMapName()}`,
@@ -1139,6 +1224,22 @@ app.get('/', (_request, response) => response.json({
   gmod: bridgeIsLive()
 }));
 
+app.get('/stats', (_request, response) => response.type('html').send(statsPage()));
+app.get('/api/stats', (_request, response) => response.json({
+  ok: true,
+  live: bridgeIsLive(),
+  map: bridge.map,
+  players: bridge.players,
+  maxPlayers: bridge.maxPlayers,
+  peakPlayers: operations.peakPlayers,
+  rounds: operations.rounds,
+  kills: operations.kills,
+  recentMaps: operations.maps.slice(-20).reverse(),
+  uptimeSeconds: Math.floor((Date.now() - startedAt) / 1000),
+  lastSignalAt: bridge.lastSignalAt,
+  health: operations.health
+}));
+
 app.get('/health', (_request, response) => response.json({
   ok: true,
   configured: missingEnvironment().length === 0,
@@ -1170,6 +1271,18 @@ app.get('/health', (_request, response) => response.json({
     lastSignalAt: bridge.lastSignalAt,
     lastEventType: bridge.lastEventType,
     bridgeVersion: bridge.version
+  },
+  stats: {
+    peakPlayers: operations.peakPlayers,
+    rounds: operations.rounds,
+    kills: operations.kills,
+    recentMaps: operations.maps.slice(-20).reverse()
+  },
+  systems: {
+    lastHealthAt: operations.health.lastAt,
+    lastHealthReportAt: operations.lastHealthReportAt,
+    missingAddons: operations.health.missingAddons,
+    abuseProtection: operations.health.abuseProtection
   },
   uptimeSeconds: Math.floor((Date.now() - startedAt) / 1000),
   delivery: {
@@ -1219,6 +1332,26 @@ async function handleGmodEvent(request, response) {
   }
   const eventType = event.type.toLowerCase();
   event.type = eventType;
+  if (eventType === 'round_start') operations.rounds += 1;
+  if (eventType === 'player_death') operations.kills += 1;
+  if (eventType === 'map_change' && event.map) {
+    const map = clean(event.map, 'unknown', 128);
+    if (operations.maps[operations.maps.length - 1] !== map) operations.maps.push(map);
+    while (operations.maps.length > 20) operations.maps.shift();
+  }
+  if (eventType === 'addon_health') {
+    operations.health = {
+      ...operations.health,
+      lastAt: new Date().toISOString(),
+      missingAddons: Array.isArray(event.missingAddons) ? event.missingAddons.map(item => clean(item, 'unknown', 120)).slice(0, 20) : [],
+      addonCount: Number.isFinite(Number(event.addonCount)) ? Math.max(0, Math.floor(Number(event.addonCount))) : null,
+      luaMemoryKb: Number.isFinite(Number(event.luaMemoryKb)) ? Math.max(0, Math.floor(Number(event.luaMemoryKb))) : null,
+      entities: Number.isFinite(Number(event.entities)) ? Math.max(0, Math.floor(Number(event.entities))) : null,
+      tickInterval: Number.isFinite(Number(event.tickInterval)) ? Number(event.tickInterval).toFixed(4) : null,
+      abuseProtection: event.abuseProtection ? clean(event.abuseProtection, 'Protection status unavailable', 200) : operations.health.abuseProtection
+    };
+    return response.json({ ok: true, received: eventType, bridgeLive: true, delivered: false, transport: 'telemetry' });
+  }
   if (directQueryEnabled && eventType === 'status') updateBridgePlayerNames(event);
   const bridgeChanged = directQueryEnabled ? false : updateBridge(event);
   const playerCountEvent = eventType === 'player_join' || eventType === 'player_leave';
@@ -1316,6 +1449,8 @@ async function handleCommand(interaction) {
     case 'refreshplayers':
       void pollGameServer().finally(() => queueLiveStatusUpdate());
       return interaction.reply({ content: 'Player roster refresh requested. The live embed will update when the server query completes.', components: serverLinkComponents(), allowedMentions: { parse: [] } });
+    case 'stats':
+      return interaction.reply({ embeds: [statsEmbed()], components: serverLinkComponents(), allowedMentions: { parse: [] } });
     case 'map':
       return interaction.reply({
         content: `Current map: ${currentMapName()}`,
@@ -1400,6 +1535,9 @@ setInterval(() => {
 }, 60000).unref();
 setInterval(() => void pollDiscordChat(), 10000).unref();
 void pollDiscordChat();
+
+setInterval(() => void publishHealthReport(), 6 * 60 * 60 * 1000).unref();
+setTimeout(() => void publishHealthReport(), 120000).unref();
 
 setTimeout(registerCommands, 1000).unref();
 void verifyDiscordApi();
