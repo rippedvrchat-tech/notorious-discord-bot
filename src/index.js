@@ -166,6 +166,7 @@ const bridge = {
   map: 'unknown',
   players: 0,
   maxPlayers: 0,
+  peakPlayers: 0,
   playerNames: [],
   round: 'waiting',
   hostname: 'Notorious Pill Pack Hide & Seek',
@@ -200,6 +201,7 @@ const discordGameChatQueue = [];
 const commands = [
   new SlashCommandBuilder().setName('status').setDescription('Show the live Notorious server dashboard'),
   new SlashCommandBuilder().setName('players').setDescription('Show the live player count and player list'),
+  new SlashCommandBuilder().setName('refreshplayers').setDescription('Request an immediate player roster refresh'),
   new SlashCommandBuilder().setName('map').setDescription('Show the current Garry\'s Mod map'),
   new SlashCommandBuilder().setName('round').setDescription('Show the current Pill Pack round state'),
   new SlashCommandBuilder().setName('uptime').setDescription('Show bot uptime and bridge freshness'),
@@ -540,7 +542,9 @@ function playersEmbed() {
     ...playerFields,
     { name: 'Map', value: markdownSafe(bridge.map, 'unknown'), inline: true },
     { name: 'Round', value: markdownSafe(bridge.round, 'waiting'), inline: true },
-    { name: 'Signal', value: discordTime(bridge.lastSignalAt), inline: true }
+    { name: 'Signal', value: discordTime(bridge.lastSignalAt), inline: true },
+    { name: 'Peak players', value: `${bridge.peakPlayers} / ${bridge.maxPlayers || '?'}`, inline: true },
+    connectionField()
   );
 }
 
@@ -583,7 +587,8 @@ function uptimeEmbed() {
   }).addFields(
     { name: 'Bot uptime', value: duration(Date.now() - startedAt), inline: true },
     { name: 'GMod heartbeat', value: bridgeIsLive() ? 'Fresh' : 'Stale', inline: true },
-    { name: 'Last signal', value: discordTime(bridge.lastSignalAt), inline: true }
+    { name: 'Last signal', value: discordTime(bridge.lastSignalAt), inline: true },
+    { name: 'Peak players', value: `${bridge.peakPlayers} / ${bridge.maxPlayers || '?'}`, inline: true }
   );
 }
 
@@ -594,7 +599,7 @@ function helpEmbed() {
     color: COLORS.pink,
     image: ASSETS.help
   }).addFields(
-    { name: 'Live server', value: '`/status`  `/players`  `/map`  `/round`  `/uptime`', inline: false },
+    { name: 'Live server', value: '`/status`  `/players`  `/refreshplayers`  `/map`  `/round`  `/uptime`', inline: false },
     { name: 'Community', value: '`/help`', inline: false },
     { name: 'Staff', value: '`/announce`  `/serverinfo`\nStaff commands require Manage Server permission.', inline: false },
     { name: 'Connection model', value: 'Server data comes from a signed heartbeat sent by the live GMod server.', inline: false }
@@ -622,6 +627,10 @@ function diagnosticsEmbed() {
     { name: 'Delivery failures', value: String(delivery.consecutiveFailures), inline: true },
     { name: 'Delivery status', value: markdownSafe(delivery.lastError, 'Healthy', 200), inline: false }
   );
+}
+
+function connectionField() {
+  return { name: 'Connect', value: `steam://connect/${gameQueryHost}:${gameQueryPort}`, inline: false };
 }
 
 function eventEmbed(event) {
@@ -756,7 +765,8 @@ async function updateServerAvailabilityAlert() {
   }).addFields(
     { name: 'Players', value: playerCountText(), inline: true },
     { name: 'Map', value: markdownSafe(bridge.map, 'unknown'), inline: true },
-    { name: 'Last signal', value: discordTime(bridge.lastSignalAt), inline: true }
+    { name: 'Last signal', value: discordTime(bridge.lastSignalAt), inline: true },
+    { name: 'Peak players', value: `${bridge.peakPlayers} / ${bridge.maxPlayers || '?'}`, inline: true }
   );
   try {
     await trackedDelivery('server_availability', signal => sendLogEmbed(embed, signal));
@@ -910,6 +920,7 @@ function updateBridge(event) {
   bridge.version = clean(event.bridgeVersion, bridge.version, 64);
   bridge.players = boundedNumber(event.players, bridge.players, 0, 256);
   bridge.maxPlayers = boundedNumber(event.maxPlayers, bridge.maxPlayers, 0, 256);
+  bridge.peakPlayers = Math.max(bridge.peakPlayers, bridge.players);
   if (Array.isArray(event.playerNames)) {
     bridge.playerNames = event.playerNames.slice(0, 64).map(name => clean(name, 'Unknown player', 80));
   }
@@ -1055,6 +1066,9 @@ async function httpCommandResponse(interaction) {
       return interactionMessage({ embed: statusEmbed(), components: serverLinkComponents() });
     case 'players':
       return interactionMessage({ embed: playersEmbed(), components: serverLinkComponents() });
+    case 'refreshplayers':
+      void pollGameServer().finally(() => queueLiveStatusUpdate());
+      return interactionMessage({ content: 'Player roster refresh requested. The live embed will update when the server query completes.', components: serverLinkComponents() });
     case 'map':
       return interactionMessage({
         content: `Current map: ${currentMapName()}`,
@@ -1288,6 +1302,9 @@ async function handleCommand(interaction) {
       return interaction.reply({ embeds: [statusEmbed()], components: serverLinkComponents(), allowedMentions: { parse: [] } });
     case 'players':
       return interaction.reply({ embeds: [playersEmbed()], components: serverLinkComponents(), allowedMentions: { parse: [] } });
+    case 'refreshplayers':
+      void pollGameServer().finally(() => queueLiveStatusUpdate());
+      return interaction.reply({ content: 'Player roster refresh requested. The live embed will update when the server query completes.', components: serverLinkComponents(), allowedMentions: { parse: [] } });
     case 'map':
       return interaction.reply({
         content: `Current map: ${currentMapName()}`,
