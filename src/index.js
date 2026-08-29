@@ -392,6 +392,21 @@ async function patchStatusMessage(channelId, messageId, payload, signal) {
   statusLastContents.set(messageId, payloadKey);
 }
 
+async function replaceLivePlayerMessage(target, payload, signal) {
+  const created = await discordRest.post(Routes.channelMessages(target.channelId), {
+    body: payload,
+    signal
+  });
+  const previousMessageId = target.messageId;
+  target.messageId = created.id;
+  if (previousMessageId && previousMessageId !== created.id) {
+    await discordRest.delete(Routes.channelMessage(target.channelId, previousMessageId), { signal }).catch(error => {
+      console.error('[Discord] Previous player status message cleanup failed:', error?.message || error);
+    });
+  }
+  return true;
+}
+
 function discordIsConnected() {
   return client.isReady() || (discordHttp.enabled && discordHttp.apiVerified);
 }
@@ -769,15 +784,16 @@ async function sendLiveStatusMessage(signal) {
   for (const target of discordStatusTargets.filter(target => validChannelId(target.channelId))) {
     const websiteOnline = target.name === 'website' ? await websiteIsOnline(signal) : false;
     const payload = liveStatusMessagePayload(target, websiteOnline);
-    if (target.messageId) {
+    if (target.name === 'game') {
+      await replaceLivePlayerMessage(target, payload, signal);
+    } else if (target.messageId) {
       try {
         await patchStatusMessage(target.channelId, target.messageId, payload, signal);
       } catch (error) {
         if (!String(error?.message || '').includes('HTTP 404')) throw error;
         target.messageId = null;
       }
-    }
-    if (!target.messageId) {
+    } else {
       const created = await discordRest.post(Routes.channelMessages(target.channelId), {
         body: payload,
         signal
