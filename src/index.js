@@ -144,6 +144,7 @@ const gmodJoinUri = process.env.GMOD_JOIN_URI || 'steam://connect/193.243.190.12
 const gameQueryHost = process.env.GMOD_QUERY_HOST || '193.243.190.129';
 const gameQueryPort = envNumber('GMOD_QUERY_PORT', 27015, 1, 65535);
 const gameQueryIntervalMs = envNumber('GMOD_QUERY_INTERVAL_MS', 5000, 3000, 60000);
+const gameQueryTimeoutMs = envNumber('GMOD_QUERY_TIMEOUT_MS', 15000, 5000, 60000);
 const directQueryEnabled = process.env.GMOD_DIRECT_QUERY_ENABLED !== 'false';
 const joinUrl = process.env.JOIN_URL || `${publicBaseUrl}/join`;
 const ASSETS = {
@@ -166,9 +167,7 @@ const bridge = {
   lastEventType: null
 };
 let gameQueryInFlight = false;
-const statusLastNames = new Map();
-const statusNextAllowedAt = new Map();
-const statusUpdateCooldownMs = envNumber('DISCORD_STATUS_UPDATE_COOLDOWN_MS', 15000, 5000, 120000);
+let gameQuerySequence = 0;
 
 const delivery = {
   lastType: null,
@@ -269,12 +268,6 @@ async function websiteIsOnline(signal) {
 }
 
 async function patchStatusChannel(channelId, name, signal) {
-  if (statusLastNames.get(channelId) === name) return;
-  const waitMs = Math.max(0, (statusNextAllowedAt.get(channelId) || 0) - Date.now());
-  if (waitMs > 0) await new Promise((resolve, reject) => {
-    const timer = setTimeout(resolve, waitMs);
-    signal?.addEventListener('abort', () => { clearTimeout(timer); reject(new Error('Status update aborted')); }, { once: true });
-  });
   const response = await fetch(`https://discord.com/api/v10/channels/${channelId}`, {
     method: 'PATCH',
     headers: {
@@ -285,15 +278,7 @@ async function patchStatusChannel(channelId, name, signal) {
     body: JSON.stringify({ name }),
     signal
   });
-  if (!response.ok) {
-    if (response.status === 429) {
-      const retryAfter = Number(response.headers.get('retry-after')) || statusUpdateCooldownMs / 1000;
-      statusNextAllowedAt.set(channelId, Date.now() + Math.min(120000, Math.max(5000, retryAfter * 1000)));
-    }
-    throw new Error(`Discord channel update failed with HTTP ${response.status}`);
-  }
-  statusLastNames.set(channelId, name);
-  statusNextAllowedAt.set(channelId, Date.now() + statusUpdateCooldownMs);
+  if (!response.ok) throw new Error(`Discord channel update failed with HTTP ${response.status}`);
 }
 
 function discordIsConnected() {
@@ -715,12 +700,26 @@ function updateBridge(event) {
 async function pollGameServer() {
   if (gameQueryInFlight) return;
   gameQueryInFlight = true;
+  const querySequence = ++gameQuerySequence;
+  let timeoutHandle;
   try {
-    const server = await GameDig.query({
+    const query = GameDig.query({
       type: 'garrysmod',
       host: gameQueryHost,
-      port: gameQueryPort
+      port: gameQueryPort,
+      maxAttempts: 1,
+      attemptTimeout: gameQueryTimeoutMs
     });
+    const server = await Promise.race([
+      query,
+      new Promise((_, reject) => {
+        timeoutHandle = setTimeout(
+          () => reject(new Error(`Game query timed out after ${gameQueryTimeoutMs}ms`)),
+          gameQueryTimeoutMs
+        );
+      })
+    ]);
+    if (querySequence !== gameQuerySequence) return;
     const changed = updateBridge({
       type: 'status',
       map: server.map,
@@ -735,6 +734,7 @@ async function pollGameServer() {
     console.error('[GameQuery] Server query failed:', error?.message || error);
     setTimeout(() => void pollGameServer(), 2000).unref();
   } finally {
+    clearTimeout(timeoutHandle);
     gameQueryInFlight = false;
   }
 }
