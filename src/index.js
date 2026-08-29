@@ -141,6 +141,7 @@ const discordStatusTargets = [
 const statusUpdateCooldownMs = envNumber('DISCORD_STATUS_UPDATE_COOLDOWN_MS', 600000, 60000, 900000);
 const statusLastNames = new Map();
 const statusNextAllowedAt = new Map();
+const statusRetryTimers = new Map();
 const statusLastContents = new Map();
 if (!validChannelId(discordChatChannelId) || !validChannelId(discordLogChannelId) ||
     discordStatusTargets.some(target => !validChannelId(target.channelId))) {
@@ -294,7 +295,7 @@ async function patchStatusChannel(channelId, name, signal) {
   }
   const waitMs = Math.max(0, (statusNextAllowedAt.get(channelId) || 0) - Date.now());
   if (waitMs > 0) {
-    setTimeout(() => queueLiveStatusUpdate(), waitMs).unref();
+    scheduleStatusRetry(channelId, waitMs);
     return;
   }
   const response = await fetch(`https://discord.com/api/v10/channels/${channelId}`, {
@@ -311,12 +312,23 @@ async function patchStatusChannel(channelId, name, signal) {
       const retryAfter = Number(response.headers.get('retry-after')) || statusUpdateCooldownMs / 1000;
       const retryDelayMs = Math.min(900000, Math.max(5000, retryAfter * 1000));
       statusNextAllowedAt.set(channelId, Date.now() + retryDelayMs);
-      setTimeout(() => queueLiveStatusUpdate(), retryDelayMs).unref();
+      scheduleStatusRetry(channelId, retryDelayMs);
     }
     throw new Error(`Discord channel update failed with HTTP ${response.status}`);
   }
   statusLastNames.set(channelId, name);
   statusNextAllowedAt.set(channelId, Date.now() + statusUpdateCooldownMs);
+}
+
+function scheduleStatusRetry(channelId, delayMs) {
+  const existing = statusRetryTimers.get(channelId);
+  if (existing) return;
+  const timer = setTimeout(() => {
+    statusRetryTimers.delete(channelId);
+    queueLiveStatusUpdate();
+  }, Math.max(1000, delayMs));
+  timer.unref?.();
+  statusRetryTimers.set(channelId, timer);
 }
 
 function liveStatusMessageContent(target, websiteOnline) {
