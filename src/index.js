@@ -271,6 +271,21 @@ async function websiteIsOnline(signal) {
 
 async function patchStatusChannel(channelId, name, signal) {
   if (statusLastNames.get(channelId) === name) return;
+  try {
+    const current = await fetch(`https://discord.com/api/v10/channels/${channelId}`, {
+      headers: { Authorization: `Bot ${process.env.DISCORD_BOT_TOKEN}` },
+      signal
+    });
+    if (current.ok) {
+      const channel = await current.json();
+      if (channel.name === name) {
+        statusLastNames.set(channelId, name);
+        return;
+      }
+    }
+  } catch {
+    // Continue to the update attempt; trackedDelivery supplies the timeout.
+  }
   const waitMs = Math.max(0, (statusNextAllowedAt.get(channelId) || 0) - Date.now());
   if (waitMs > 0) {
     await new Promise((resolve, reject) => {
