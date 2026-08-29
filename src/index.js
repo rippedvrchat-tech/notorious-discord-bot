@@ -119,7 +119,6 @@ const validChannelId = value => /^\d{17,20}$/.test(String(value));
 const discordChatChannelId = process.env.DISCORD_CHAT_CHANNEL_ID || '1528106297080156180';
 const discordLogChannelId = process.env.DISCORD_LOG_CHANNEL_ID || '1533995392096796703';
 const discordAlertChannelId = process.env.DISCORD_ALERT_CHANNEL_ID || '';
-const discordUserAgent = 'NotoriousDiscordBot/1.0 (+https://ogpill.xyz)';
 const discordStatusTargets = [
   {
     name: 'game',
@@ -135,6 +134,9 @@ const discordStatusTargets = [
   ...target,
   messageId: validChannelId(target.messageId) ? target.messageId : null
 }));
+const statusUpdateCooldownMs = envNumber('DISCORD_STATUS_UPDATE_COOLDOWN_MS', 15000, 5000, 120000);
+const statusLastNames = new Map();
+const statusNextAllowedAt = new Map();
 if (!validChannelId(discordChatChannelId) || !validChannelId(discordLogChannelId) ||
     discordStatusTargets.some(target => !validChannelId(target.channelId))) {
   console.error('[Discord] Channel IDs must be valid Discord snowflakes.');
@@ -268,17 +270,35 @@ async function websiteIsOnline(signal) {
 }
 
 async function patchStatusChannel(channelId, name, signal) {
+  if (statusLastNames.get(channelId) === name) return;
+  const waitMs = Math.max(0, (statusNextAllowedAt.get(channelId) || 0) - Date.now());
+  if (waitMs > 0) {
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(resolve, waitMs);
+      signal?.addEventListener('abort', () => {
+        clearTimeout(timer);
+        reject(new Error('Status update aborted'));
+      }, { once: true });
+    });
+  }
   const response = await fetch(`https://discord.com/api/v10/channels/${channelId}`, {
     method: 'PATCH',
     headers: {
       Authorization: `Bot ${process.env.DISCORD_BOT_TOKEN}`,
-      'Content-Type': 'application/json',
-      'User-Agent': discordUserAgent
+      'Content-Type': 'application/json'
     },
     body: JSON.stringify({ name }),
     signal
   });
-  if (!response.ok) throw new Error(`Discord channel update failed with HTTP ${response.status}`);
+  if (!response.ok) {
+    if (response.status === 429) {
+      const retryAfter = Number(response.headers.get('retry-after')) || statusUpdateCooldownMs / 1000;
+      statusNextAllowedAt.set(channelId, Date.now() + Math.min(120000, Math.max(5000, retryAfter * 1000)));
+    }
+    throw new Error(`Discord channel update failed with HTTP ${response.status}`);
+  }
+  statusLastNames.set(channelId, name);
+  statusNextAllowedAt.set(channelId, Date.now() + statusUpdateCooldownMs);
 }
 
 function discordIsConnected() {
