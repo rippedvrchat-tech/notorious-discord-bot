@@ -135,7 +135,10 @@ const discordStatusTargets = [
   ...target,
   messageId: validChannelId(target.messageId) ? target.messageId : null
 }));
-const statusUpdateCooldownMs = envNumber('DISCORD_STATUS_UPDATE_COOLDOWN_MS', 15000, 5000, 120000);
+// Discord applies a much stricter rate limit to channel-name changes than to
+// ordinary messages. Keep the automatic player-count refresh, but allow at
+// most one rename per channel per ten minutes unless Discord asks for longer.
+const statusUpdateCooldownMs = envNumber('DISCORD_STATUS_UPDATE_COOLDOWN_MS', 600000, 60000, 900000);
 const statusLastNames = new Map();
 const statusNextAllowedAt = new Map();
 const statusLastContents = new Map();
