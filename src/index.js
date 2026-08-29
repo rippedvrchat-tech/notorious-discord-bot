@@ -511,10 +511,23 @@ function statusEmbed() {
 
 function playersEmbed() {
   const live = bridgeIsLive();
-  const names = bridge.playerNames.slice(0, 32);
-  const list = names.length
-    ? names.map((name, index) => `**${index + 1}.** ${markdownSafe(name, 'Unknown player', 80)}`).join('\n').slice(0, 1024)
-    : 'No players are currently online.';
+  const names = bridge.playerNames;
+  const playerFields = [];
+  if (!names.length) {
+    playerFields.push({ name: 'Player list', value: 'No players are currently online.', inline: false });
+  } else {
+    let chunk = '';
+    names.forEach((name, index) => {
+      const line = `**${index + 1}.** ${markdownSafe(name, 'Unknown player', 80)}`;
+      if (chunk && `${chunk}\n${line}`.length > 950) {
+        playerFields.push({ name: 'Player list', value: chunk, inline: false });
+        chunk = line;
+      } else {
+        chunk = chunk ? `${chunk}\n${line}` : line;
+      }
+    });
+    if (chunk) playerFields.push({ name: 'Player list', value: chunk, inline: false });
+  }
   return brandedEmbed({
     title: 'Live Player Roster',
     description: live
@@ -523,7 +536,7 @@ function playersEmbed() {
     color: live ? COLORS.green : COLORS.amber,
     image: ASSETS.community
   }).addFields(
-    { name: 'Player list', value: list, inline: false },
+    ...playerFields,
     { name: 'Map', value: markdownSafe(bridge.map, 'unknown'), inline: true },
     { name: 'Round', value: markdownSafe(bridge.round, 'waiting'), inline: true },
     { name: 'Signal', value: discordTime(bridge.lastSignalAt), inline: true }
