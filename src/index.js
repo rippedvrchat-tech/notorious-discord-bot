@@ -118,6 +118,7 @@ const publicBaseUrl = String(process.env.PUBLIC_BASE_URL || 'https://notorious-d
 const validChannelId = value => /^\d{17,20}$/.test(String(value));
 const discordChatChannelId = process.env.DISCORD_CHAT_CHANNEL_ID || '1528106297080156180';
 const discordLogChannelId = process.env.DISCORD_LOG_CHANNEL_ID || '1533995392096796703';
+const discordAlertChannelId = process.env.DISCORD_ALERT_CHANNEL_ID || '';
 const discordStatusTargets = [
   {
     name: 'game',
@@ -164,6 +165,9 @@ const bridge = {
   lastEventType: null
 };
 let gameQueryInFlight = false;
+const statusLastNames = new Map();
+const statusNextAllowedAt = new Map();
+const statusUpdateCooldownMs = envNumber('DISCORD_STATUS_UPDATE_COOLDOWN_MS', 15000, 5000, 120000);
 
 const delivery = {
   lastType: null,
@@ -264,6 +268,12 @@ async function websiteIsOnline(signal) {
 }
 
 async function patchStatusChannel(channelId, name, signal) {
+  if (statusLastNames.get(channelId) === name) return;
+  const waitMs = Math.max(0, (statusNextAllowedAt.get(channelId) || 0) - Date.now());
+  if (waitMs > 0) await new Promise((resolve, reject) => {
+    const timer = setTimeout(resolve, waitMs);
+    signal?.addEventListener('abort', () => { clearTimeout(timer); reject(new Error('Status update aborted')); }, { once: true });
+  });
   const response = await fetch(`https://discord.com/api/v10/channels/${channelId}`, {
     method: 'PATCH',
     headers: {
@@ -273,7 +283,15 @@ async function patchStatusChannel(channelId, name, signal) {
     body: JSON.stringify({ name }),
     signal
   });
-  if (!response.ok) throw new Error(`Discord channel update failed with HTTP ${response.status}`);
+  if (!response.ok) {
+    if (response.status === 429) {
+      const retryAfter = Number(response.headers.get('retry-after')) || statusUpdateCooldownMs / 1000;
+      statusNextAllowedAt.set(channelId, Date.now() + Math.min(120000, Math.max(5000, retryAfter * 1000)));
+    }
+    throw new Error(`Discord channel update failed with HTTP ${response.status}`);
+  }
+  statusLastNames.set(channelId, name);
+  statusNextAllowedAt.set(channelId, Date.now() + statusUpdateCooldownMs);
 }
 
 function discordIsConnected() {
@@ -562,6 +580,24 @@ async function sendLogEmbed(embed, signal) {
   await discordRest.post(Routes.channelMessages(channelId), {
     body: { embeds: [embed.toJSON()], allowed_mentions: { parse: [] } },
     signal
+  });
+  return true;
+}
+
+async function sendCriticalAlert(event, signal) {
+  if (!validChannelId(discordAlertChannelId) || !discordRest) return false;
+  const embed = brandedEmbed({
+    title: 'Critical Server Alert',
+    description: markdownSafe(event.message, 'The server reported a critical condition.', 1500),
+    color: COLORS.red,
+    timestamp: new Date().toISOString()
+  }).addFields(
+    { name: 'Type', value: markdownSafe(event.alertType, 'server', 100), inline: true },
+    { name: 'Map', value: markdownSafe(event.map, 'unknown', 100), inline: true },
+    { name: 'Players', value: String(Math.max(0, Number(event.players) || 0)), inline: true }
+  );
+  await discordRest.post(Routes.channelMessages(discordAlertChannelId), {
+    body: { embeds: [embed.toJSON()], allowed_mentions: { parse: [] } }, signal
   });
   return true;
 }
@@ -926,6 +962,15 @@ async function handleGmodEvent(request, response) {
       return response.status(502).json({ error: 'discord_delivery_failed', received: 'chat', bridgeLive: true });
     }
     return response.json({ ok: true, received: 'chat', bridgeLive: true, delivered: true, transport: 'bot' });
+  }
+  if (eventType === 'critical_alert') {
+    try {
+      await trackedDelivery('critical_alert', signal => sendCriticalAlert(event, signal));
+    } catch (error) {
+      console.error('[Discord] Critical alert delivery failed:', error?.message || error);
+      return response.status(502).json({ error: 'discord_delivery_failed', received: 'critical_alert', bridgeLive: true });
+    }
+    return response.json({ ok: true, received: 'critical_alert', bridgeLive: true, delivered: true, transport: 'bot' });
   }
   return response.json({
     ok: true, received: clean(eventType, 'server_event', 64), bridgeLive: true,
