@@ -327,6 +327,21 @@ function liveStatusMessageContent(target, websiteOnline) {
 
 async function patchStatusMessage(channelId, messageId, content, signal) {
   if (statusLastContents.get(messageId) === content) return;
+  try {
+    const current = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages/${messageId}`, {
+      headers: { Authorization: `Bot ${process.env.DISCORD_BOT_TOKEN}` },
+      signal
+    });
+    if (current.ok) {
+      const message = await current.json();
+      if (message.content === content) {
+        statusLastContents.set(messageId, content);
+        return;
+      }
+    }
+  } catch {
+    // Continue to the update attempt; trackedDelivery supplies the timeout.
+  }
   const response = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages/${messageId}`, {
     method: 'PATCH',
     headers: {
@@ -961,7 +976,7 @@ app.get('/health', (_request, response) => response.json({
     statusChannels: discordStatusTargets.map(target => ({
       name: target.name,
       channelId: target.channelId,
-      messageIdConfigured: false
+      messageIdConfigured: Boolean(target.messageId)
     }))
   },
   lastInteractionAt: discordHttp.lastInteractionAt,
