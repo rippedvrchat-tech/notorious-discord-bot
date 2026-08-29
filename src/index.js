@@ -945,7 +945,9 @@ async function pollGameServer() {
       players: server.players.length,
       maxPlayers: server.maxplayers,
       hostname: server.name,
-      playerNames: server.players.map(player => player.name).filter(Boolean),
+      playerNames: server.players.map((player, index) =>
+        player.name || player.steamid || `Player ${index + 1}`
+      ),
       bridgeVersion: 'gamedig'
     });
     if (changed) queueLiveStatusUpdate();
