@@ -750,7 +750,10 @@ async function sendLiveStatusMessage(signal) {
   if (!discordRest || !discordStatusTargets.length) return false;
   for (const target of discordStatusTargets.filter(target => validChannelId(target.channelId))) {
     const websiteOnline = target.name === 'website' ? await websiteIsOnline(signal) : false;
-    await patchStatusChannel(target.channelId, liveStatusChannelName(target, websiteOnline), signal);
+    const content = liveStatusMessageContent(target, websiteOnline);
+    if (target.messageId) {
+      await patchStatusMessage(target.channelId, target.messageId, content, signal);
+    }
   }
   return true;
 }
