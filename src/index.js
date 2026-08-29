@@ -293,7 +293,9 @@ async function patchStatusChannel(channelId, name, signal) {
   if (!response.ok) {
     if (response.status === 429) {
       const retryAfter = Number(response.headers.get('retry-after')) || statusUpdateCooldownMs / 1000;
-      statusNextAllowedAt.set(channelId, Date.now() + Math.min(120000, Math.max(5000, retryAfter * 1000)));
+      const retryDelayMs = Math.min(120000, Math.max(5000, retryAfter * 1000));
+      statusNextAllowedAt.set(channelId, Date.now() + retryDelayMs);
+      setTimeout(() => queueLiveStatusUpdate(), retryDelayMs).unref();
     }
     throw new Error(`Discord channel update failed with HTTP ${response.status}`);
   }
