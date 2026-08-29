@@ -1054,6 +1054,19 @@ async function handleGmodEvent(request, response) {
     }
     return response.json({ ok: true, received: 'critical_alert', bridgeLive: true, delivered: true, transport: 'bot' });
   }
+  const announcementEventTypes = new Set([
+    'player_join', 'player_leave', 'player_death',
+    'round_start', 'round_end', 'map_change'
+  ]);
+  if (announcementEventTypes.has(eventType)) {
+    try {
+      await trackedDelivery('server_event', signal => sendLogEmbed(eventEmbed(event), signal));
+    } catch (error) {
+      console.error('[Discord] Server event delivery failed:', error?.message || error);
+      return response.status(502).json({ error: 'discord_delivery_failed', received: eventType, bridgeLive: true });
+    }
+    return response.json({ ok: true, received: eventType, bridgeLive: true, delivered: true, transport: 'bot' });
+  }
   return response.json({
     ok: true, received: clean(eventType, 'server_event', 64), bridgeLive: true,
     delivered: false, transport: 'discordtoolkit'
