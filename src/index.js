@@ -117,7 +117,7 @@ const COLORS = {
 const publicBaseUrl = String(process.env.PUBLIC_BASE_URL || 'https://notorious-discord-bot.onrender.com').replace(/\/+$/, '');
 const validChannelId = value => /^\d{17,20}$/.test(String(value));
 const discordChatChannelId = process.env.DISCORD_CHAT_CHANNEL_ID || '1528106297080156180';
-const discordLogChannelId = process.env.DISCORD_LOG_CHANNEL_ID || '1533995392096796703';
+const discordLogChannelId = process.env.DISCORD_LOG_CHANNEL_ID || '1528106297080156180';
 const discordUserAgent = 'NotoriousDiscordBot/1.0 (+https://ogpill.xyz)';
 const discordAlertChannelId = process.env.DISCORD_ALERT_CHANNEL_ID || '';
 const discordStatusTargets = [
@@ -960,6 +960,7 @@ async function pollGameServer() {
       })
     ]);
     if (querySequence !== gameQuerySequence) return;
+    const previousMap = bridge.map;
     const queriedNames = server.players.map((player, index) =>
       player.name || player.steamid || `Player ${index + 1}`
     );
@@ -974,6 +975,16 @@ async function pollGameServer() {
       bridgeVersion: 'gamedig'
     });
     if (changed) queueLiveStatusUpdate();
+    if (gameQueryInitialized && previousMap !== bridge.map) {
+      void trackedDelivery('map_change', signal => sendLogEmbed(eventEmbed({
+        type: 'map_change',
+        map: bridge.map,
+        round: bridge.round,
+        players: bridge.players
+      }), signal)).catch(error => {
+        console.error('[Discord] Map change announcement failed:', error?.message || error);
+      });
+    }
     gameQueryInitialized = true;
     void updateServerAvailabilityAlert();
   } catch (error) {
