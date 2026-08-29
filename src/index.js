@@ -338,13 +338,31 @@ function scheduleStatusRetry(channelId, delayMs) {
   statusRetryTimers.set(channelId, timer);
 }
 
-function liveStatusMessageContent(target, websiteOnline) {
-  if (target.name === 'website') return `${websiteOnline ? '🟢' : '🔴'} | **ogpill.xyz**`;
-  return `${serverStatusEmoji()} | **${playerCountText()} players**\nMap: **${currentMapName()}**`;
+function liveStatusMessagePayload(target, websiteOnline) {
+  if (target.name === 'website') {
+    return {
+      content: '',
+      embeds: [brandedEmbed({
+        title: websiteOnline ? 'Website Online' : 'Website Offline',
+        description: websiteOnline ? 'ogpill.xyz is responding.' : 'ogpill.xyz is not responding.',
+        color: websiteOnline ? COLORS.green : COLORS.red,
+        image: ASSETS.identity
+      }).addFields(
+        { name: 'Visitors', value: 'Website presence is not exposed by the site yet.', inline: false }
+      ).toJSON()],
+      components: serverLinkComponents().map(row => row.toJSON())
+    };
+  }
+  return {
+    content: '',
+    embeds: [playersEmbed().toJSON()],
+    components: serverLinkComponents().map(row => row.toJSON())
+  };
 }
 
-async function patchStatusMessage(channelId, messageId, content, signal) {
-  if (statusLastContents.get(messageId) === content) return;
+async function patchStatusMessage(channelId, messageId, payload, signal) {
+  const payloadKey = JSON.stringify(payload);
+  if (statusLastContents.get(messageId) === payloadKey) return;
   try {
     const current = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages/${messageId}`, {
       headers: { Authorization: `Bot ${process.env.DISCORD_BOT_TOKEN}` },
@@ -352,8 +370,8 @@ async function patchStatusMessage(channelId, messageId, content, signal) {
     });
     if (current.ok) {
       const message = await current.json();
-      if (message.content === content) {
-        statusLastContents.set(messageId, content);
+      if (message.content === payload.content && JSON.stringify(message.embeds || []) === JSON.stringify(payload.embeds || [])) {
+        statusLastContents.set(messageId, payloadKey);
         return;
       }
     }
@@ -367,11 +385,11 @@ async function patchStatusMessage(channelId, messageId, content, signal) {
       'Content-Type': 'application/json',
       'User-Agent': discordUserAgent
     },
-    body: JSON.stringify({ content, allowed_mentions: { parse: [] } }),
+    body: JSON.stringify({ ...payload, allowed_mentions: { parse: [] } }),
     signal
   });
   if (!response.ok) throw new Error(`Discord status message update failed with HTTP ${response.status}`);
-  statusLastContents.set(messageId, content);
+  statusLastContents.set(messageId, payloadKey);
 }
 
 function discordIsConnected() {
@@ -750,9 +768,21 @@ async function sendLiveStatusMessage(signal) {
   if (!discordRest || !discordStatusTargets.length) return false;
   for (const target of discordStatusTargets.filter(target => validChannelId(target.channelId))) {
     const websiteOnline = target.name === 'website' ? await websiteIsOnline(signal) : false;
-    const content = liveStatusMessageContent(target, websiteOnline);
+    const payload = liveStatusMessagePayload(target, websiteOnline);
     if (target.messageId) {
-      await patchStatusMessage(target.channelId, target.messageId, content, signal);
+      try {
+        await patchStatusMessage(target.channelId, target.messageId, payload, signal);
+      } catch (error) {
+        if (!String(error?.message || '').includes('HTTP 404')) throw error;
+        target.messageId = null;
+      }
+    }
+    if (!target.messageId) {
+      const created = await discordRest.post(Routes.channelMessages(target.channelId), {
+        body: payload,
+        signal
+      });
+      target.messageId = created.id;
     }
   }
   return true;
