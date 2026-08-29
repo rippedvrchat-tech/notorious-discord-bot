@@ -192,6 +192,9 @@ const delivery = {
 const inFlightDeliveries = new Set();
 let liveStatusUpdateRunning = false;
 let liveStatusUpdateQueued = false;
+let discordChatCursor = null;
+let discordChatPollRunning = false;
+const discordGameChatQueue = [];
 
 const commands = [
   new SlashCommandBuilder().setName('status').setDescription('Show the live Notorious server dashboard'),
@@ -648,6 +651,33 @@ async function sendChatMessage(content, signal) {
   });
   return true;
 }
+
+async function pollDiscordChat() {
+  if (discordChatPollRunning || !discordRest || !validChannelId(discordChatChannelId)) return;
+  discordChatPollRunning = true;
+  try {
+    const query = discordChatCursor ? `?after=${discordChatCursor}&limit=100` : '?limit=20';
+    const messages = await discordRest.get(Routes.channelMessages(discordChatChannelId) + query);
+    const ordered = Array.isArray(messages) ? messages.slice().reverse() : [];
+    if (!discordChatCursor && ordered.length) discordChatCursor = ordered[ordered.length - 1].id;
+    else {
+      for (const message of ordered) {
+        discordChatCursor = message.id;
+        if (message.author?.bot || !message.content) continue;
+        discordGameChatQueue.push({
+          id: message.id,
+          player: clean(message.author.global_name || message.author.username, 'Discord', 80),
+          message: clean(message.content, '', maxChatLength)
+        });
+      }
+    }
+    while (discordGameChatQueue.length > 100) discordGameChatQueue.shift();
+  } catch (error) {
+    console.error('[Discord] Chat poll failed:', error?.message || error);
+  } finally {
+    discordChatPollRunning = false;
+  }
+}
 async function sendLogEmbed(embed, signal) {
   if (!validChannelId(discordLogChannelId)) return false;
   const channel = await logChannel();
@@ -1051,6 +1081,20 @@ app.get('/health', (_request, response) => response.json({
   },
 }));
 
+app.get('/gmod/chat-poll', (request, response) => {
+  if (!process.env.G2D_SHARED_SECRET ||
+      !secretsMatch(request.get('x-notorious-secret'), process.env.G2D_SHARED_SECRET)) {
+    return response.status(401).json({ error: 'unauthorized' });
+  }
+  const cursor = String(request.query.cursor || '0');
+  const messages = discordGameChatQueue.filter(item => item.id > cursor).slice(0, 20);
+  return response.json({
+    ok: true,
+    messages,
+    nextCursor: messages.length ? messages[messages.length - 1].id : cursor
+  });
+});
+
 async function handleGmodEvent(request, response) {
   const localTrusted = request.path === '/gmod/event-local' &&
     (request.ip === '127.0.0.1' || request.ip === '::1' || request.ip === '::ffff:127.0.0.1');
@@ -1249,6 +1293,8 @@ setInterval(() => {
   if (!client.isReady() && !loginInProgress) connectDiscord();
   void verifyDiscordApi();
 }, 60000).unref();
+setInterval(() => void pollDiscordChat(), 10000).unref();
+void pollDiscordChat();
 
 setTimeout(registerCommands, 1000).unref();
 void verifyDiscordApi();
