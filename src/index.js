@@ -1044,6 +1044,10 @@ async function pollGameServer() {
     ]);
     if (querySequence !== gameQuerySequence) return;
     const previousMap = bridge.map;
+    if (operations.maps[operations.maps.length - 1] !== server.map) {
+      operations.maps.push(clean(server.map, 'unknown', 128));
+      while (operations.maps.length > 20) operations.maps.shift();
+    }
     const queriedNames = server.players.map((player, index) =>
       player.name || player.steamid || `Player ${index + 1}`
     );
