@@ -118,6 +118,7 @@ const publicBaseUrl = String(process.env.PUBLIC_BASE_URL || 'https://notorious-d
 const validChannelId = value => /^\d{17,20}$/.test(String(value));
 const discordChatChannelId = process.env.DISCORD_CHAT_CHANNEL_ID || '1528106297080156180';
 const discordLogChannelId = process.env.DISCORD_LOG_CHANNEL_ID || '1533995392096796703';
+const discordUserAgent = 'NotoriousDiscordBot/1.0 (+https://ogpill.xyz)';
 const discordAlertChannelId = process.env.DISCORD_ALERT_CHANNEL_ID || '';
 const discordStatusTargets = [
   {
