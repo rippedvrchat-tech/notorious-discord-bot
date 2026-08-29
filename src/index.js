@@ -124,12 +124,12 @@ const discordStatusTargets = [
   {
     name: 'game',
     channelId: process.env.DISCORD_STATUS_CHANNEL_ID || '1537799353056497704',
-    messageId: process.env.DISCORD_STATUS_MESSAGE_ID
+    messageId: process.env.DISCORD_STATUS_MESSAGE_ID || '1543214242650398720'
   },
   {
     name: 'website',
     channelId: process.env.DISCORD_WEBSITE_STATUS_CHANNEL_ID || '1537799281975627846',
-    messageId: process.env.DISCORD_WEBSITE_STATUS_MESSAGE_ID
+    messageId: process.env.DISCORD_WEBSITE_STATUS_MESSAGE_ID || '1543214243413885041'
   }
 ].map(target => ({
   ...target,
