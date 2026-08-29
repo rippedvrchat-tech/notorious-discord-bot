@@ -294,13 +294,8 @@ async function patchStatusChannel(channelId, name, signal) {
   }
   const waitMs = Math.max(0, (statusNextAllowedAt.get(channelId) || 0) - Date.now());
   if (waitMs > 0) {
-    await new Promise((resolve, reject) => {
-      const timer = setTimeout(resolve, waitMs);
-      signal?.addEventListener('abort', () => {
-        clearTimeout(timer);
-        reject(new Error('Status update aborted'));
-      }, { once: true });
-    });
+    setTimeout(() => queueLiveStatusUpdate(), waitMs).unref();
+    return;
   }
   const response = await fetch(`https://discord.com/api/v10/channels/${channelId}`, {
     method: 'PATCH',
@@ -314,7 +309,7 @@ async function patchStatusChannel(channelId, name, signal) {
   if (!response.ok) {
     if (response.status === 429) {
       const retryAfter = Number(response.headers.get('retry-after')) || statusUpdateCooldownMs / 1000;
-      const retryDelayMs = Math.min(120000, Math.max(5000, retryAfter * 1000));
+      const retryDelayMs = Math.min(900000, Math.max(5000, retryAfter * 1000));
       statusNextAllowedAt.set(channelId, Date.now() + retryDelayMs);
       setTimeout(() => queueLiveStatusUpdate(), retryDelayMs).unref();
     }
