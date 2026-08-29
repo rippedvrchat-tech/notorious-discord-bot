@@ -669,12 +669,7 @@ async function sendLiveStatusMessage(signal) {
   if (!discordRest || !discordStatusTargets.length) return false;
   const websiteOnline = await websiteIsOnline(signal);
   for (const target of discordStatusTargets.filter(target => validChannelId(target.channelId))) {
-    const content = liveStatusMessageContent(target, websiteOnline);
-    if (target.messageId) {
-      await patchStatusMessage(target.channelId, target.messageId, content, signal);
-    } else {
-      await patchStatusChannel(target.channelId, liveStatusChannelName(target, websiteOnline), signal);
-    }
+    await patchStatusChannel(target.channelId, liveStatusChannelName(target, websiteOnline), signal);
   }
   return true;
 }
