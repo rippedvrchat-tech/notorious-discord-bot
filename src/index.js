@@ -180,6 +180,7 @@ let gameQueryInitialized = false;
 let serverAvailability = 'unknown';
 let lastAvailabilityAlerted = 'unknown';
 let availabilityAlertRetry = null;
+let authoritativeRosterAt = 0;
 
 const delivery = {
   lastType: null,
@@ -920,6 +921,7 @@ function updateBridgePlayerNames(event) {
   if (!Array.isArray(event?.playerNames)) return false;
   bridge.playerNames = event.playerNames
     .map((name, index) => clean(name, `Player ${index + 1}`, 80));
+  authoritativeRosterAt = Date.now();
   return true;
 }
 
@@ -946,15 +948,17 @@ async function pollGameServer() {
       })
     ]);
     if (querySequence !== gameQuerySequence) return;
+    const queriedNames = server.players.map((player, index) =>
+      player.name || player.steamid || `Player ${index + 1}`
+    );
+    const namesFromGmod = Date.now() - authoritativeRosterAt < 40000;
     const changed = updateBridge({
       type: 'status',
       map: server.map,
       players: server.players.length,
       maxPlayers: server.maxplayers,
       hostname: server.name,
-      playerNames: server.players.map((player, index) =>
-        player.name || player.steamid || `Player ${index + 1}`
-      ),
+      playerNames: namesFromGmod && bridge.playerNames.length ? bridge.playerNames : queriedNames,
       bridgeVersion: 'gamedig'
     });
     if (changed) queueLiveStatusUpdate();
