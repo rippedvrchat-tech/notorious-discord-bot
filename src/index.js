@@ -916,6 +916,13 @@ function updateBridge(event) {
     previous.hostname !== bridge.hostname || previous.version !== bridge.version;
 }
 
+function updateBridgePlayerNames(event) {
+  if (!Array.isArray(event?.playerNames)) return false;
+  bridge.playerNames = event.playerNames
+    .map((name, index) => clean(name, `Player ${index + 1}`, 80));
+  return true;
+}
+
 async function pollGameServer() {
   if (gameQueryInFlight) return;
   gameQueryInFlight = true;
@@ -1182,13 +1189,14 @@ async function handleGmodEvent(request, response) {
   }
   const eventType = event.type.toLowerCase();
   event.type = eventType;
+  if (directQueryEnabled && eventType === 'status') updateBridgePlayerNames(event);
   const bridgeChanged = directQueryEnabled ? false : updateBridge(event);
   const playerCountEvent = eventType === 'player_join' || eventType === 'player_leave';
   if (eventType === 'status') {
     if (bridgeChanged && !directQueryEnabled) queueLiveStatusUpdate();
     return response.json({ ok: true, received: 'status', bridgeLive: true, delivered: false, transport: 'telemetry' });
   }
-  if (playerCountEvent && !directQueryEnabled) queueLiveStatusUpdate();
+  if (playerCountEvent) queueLiveStatusUpdate();
   if (eventType === 'chat') {
     if (!isRelayablePublicChat(event.message, event)) {
       return response.json({ ok: true, received: 'chat', bridgeLive: true, delivered: false, filtered: true });
