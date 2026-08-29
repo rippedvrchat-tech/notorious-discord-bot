@@ -177,6 +177,9 @@ const bridge = {
 let gameQueryInFlight = false;
 let gameQuerySequence = 0;
 let gameQueryInitialized = false;
+let serverAvailability = 'unknown';
+let lastAvailabilityAlerted = 'unknown';
+let availabilityAlertRetry = null;
 
 const delivery = {
   lastType: null,
@@ -259,6 +262,7 @@ function websiteStatusEmoji() {
 }
 
 function liveStatusBoardText() {
+  if (!bridgeIsLive()) return `⚠️ | Status delayed (${playerCountText()})`;
   return `${serverStatusEmoji()} | ${playerCountText()} players`;
 }
 
@@ -563,7 +567,10 @@ function diagnosticsEmbed() {
     { name: 'Last signal', value: discordTime(bridge.lastSignalAt), inline: true },
     { name: 'Map', value: markdownSafe(bridge.map, 'unknown'), inline: true },
     { name: 'Players', value: playerCountText(), inline: true },
-    { name: 'Round', value: markdownSafe(bridge.round, 'waiting'), inline: true }
+    { name: 'Round', value: markdownSafe(bridge.round, 'waiting'), inline: true },
+    { name: 'Last delivery', value: delivery.lastSuccessAt ? discordTime(delivery.lastSuccessAt) : 'No successful delivery', inline: true },
+    { name: 'Delivery failures', value: String(delivery.consecutiveFailures), inline: true },
+    { name: 'Delivery status', value: markdownSafe(delivery.lastError, 'Healthy', 200), inline: false }
   );
 }
 
@@ -655,6 +662,40 @@ async function sendLogEmbed(embed, signal) {
     signal
   });
   return true;
+}
+
+async function updateServerAvailabilityAlert() {
+  const current = bridgeIsLive() ? 'online' : 'offline';
+  if (current === serverAvailability) return;
+  serverAvailability = current;
+  if (current === lastAvailabilityAlerted) return;
+  const embed = brandedEmbed({
+    title: current === 'online' ? 'Server Online' : 'Server Offline',
+    description: current === 'online'
+      ? 'The Notorious GMod server is responding again.'
+      : 'The Notorious GMod server heartbeat is stale or unavailable.',
+    color: current === 'online' ? COLORS.green : COLORS.red,
+    image: ASSETS.server
+  }).addFields(
+    { name: 'Players', value: playerCountText(), inline: true },
+    { name: 'Map', value: markdownSafe(bridge.map, 'unknown'), inline: true },
+    { name: 'Last signal', value: discordTime(bridge.lastSignalAt), inline: true }
+  );
+  try {
+    await trackedDelivery('server_availability', signal => sendLogEmbed(embed, signal));
+    lastAvailabilityAlerted = current;
+    if (availabilityAlertRetry) clearTimeout(availabilityAlertRetry);
+    availabilityAlertRetry = null;
+  } catch (error) {
+    console.error('[Discord] Server availability alert failed:', error?.message || error);
+    if (!availabilityAlertRetry) {
+      availabilityAlertRetry = setTimeout(() => {
+        availabilityAlertRetry = null;
+        void updateServerAvailabilityAlert();
+      }, 60000);
+      availabilityAlertRetry.unref?.();
+    }
+  }
 }
 
 async function sendCriticalAlert(event, signal) {
@@ -817,8 +858,10 @@ async function pollGameServer() {
     });
     if (changed && gameQueryInitialized) queueLiveStatusUpdate();
     gameQueryInitialized = true;
+    void updateServerAvailabilityAlert();
   } catch (error) {
     console.error('[GameQuery] Server query failed:', error?.message || error);
+    void updateServerAvailabilityAlert();
     setTimeout(() => void pollGameServer(), 2000).unref();
   } finally {
     clearTimeout(timeoutHandle);
