@@ -385,6 +385,11 @@ function liveStatusMessagePayload(target, websiteOnline) {
 async function patchStatusMessage(channelId, messageId, payload, signal) {
   const payloadKey = JSON.stringify(payload);
   if (statusLastContents.get(messageId) === payloadKey) return;
+  const waitMs = Math.max(0, (statusNextAllowedAt.get(messageId) || 0) - Date.now());
+  if (waitMs > 0) {
+    scheduleStatusRetry(messageId, waitMs);
+    return;
+  }
   try {
     const current = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages/${messageId}`, {
       headers: { Authorization: `Bot ${process.env.DISCORD_BOT_TOKEN}` },
@@ -410,8 +415,35 @@ async function patchStatusMessage(channelId, messageId, payload, signal) {
     body: JSON.stringify({ ...payload, allowed_mentions: { parse: [] } }),
     signal
   });
+  if (response.status === 429) {
+    const retryAfter = Number(response.headers.get('retry-after')) || 5;
+    const retryDelayMs = Math.min(900000, Math.max(5000, retryAfter * 1000));
+    statusNextAllowedAt.set(messageId, Date.now() + retryDelayMs);
+    scheduleStatusRetry(messageId, retryDelayMs);
+  }
   if (!response.ok) throw new Error(`Discord status message update failed with HTTP ${response.status}`);
   statusLastContents.set(messageId, payloadKey);
+}
+
+async function createStatusMessage(channelId, payload, signal) {
+  const response = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bot ${process.env.DISCORD_BOT_TOKEN}`,
+      'Content-Type': 'application/json',
+      'User-Agent': discordUserAgent
+    },
+    body: JSON.stringify({ ...payload, allowed_mentions: { parse: [] } }),
+    signal
+  });
+  if (response.status === 429) {
+    const retryAfter = Number(response.headers.get('retry-after')) || 5;
+    const retryDelayMs = Math.min(900000, Math.max(5000, retryAfter * 1000));
+    statusNextAllowedAt.set(channelId, Date.now() + retryDelayMs);
+    scheduleStatusRetry(channelId, retryDelayMs);
+  }
+  if (!response.ok) throw new Error(`Discord status message create failed with HTTP ${response.status}`);
+  return response.json();
 }
 
 async function replaceLivePlayerMessage(target, payload, signal) {
@@ -929,10 +961,7 @@ async function sendLiveStatusMessage(signal) {
         }
       }
       if (!target.messageId) {
-        const created = await discordRest.post(Routes.channelMessages(target.channelId), {
-          body: payload,
-          signal
-        });
+        const created = await createStatusMessage(target.channelId, payload, signal);
         target.messageId = created.id;
       }
     } else if (target.messageId) {
@@ -943,10 +972,7 @@ async function sendLiveStatusMessage(signal) {
         target.messageId = null;
       }
     } else {
-      const created = await discordRest.post(Routes.channelMessages(target.channelId), {
-        body: payload,
-        signal
-      });
+      const created = await createStatusMessage(target.channelId, payload, signal);
       target.messageId = created.id;
     }
   }
