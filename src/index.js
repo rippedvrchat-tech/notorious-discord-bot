@@ -415,14 +415,26 @@ async function patchStatusMessage(channelId, messageId, payload, signal) {
 }
 
 async function replaceLivePlayerMessage(target, payload, signal) {
-  const created = await discordRest.post(Routes.channelMessages(target.channelId), {
-    body: payload,
+  const response = await fetch(`https://discord.com/api/v10/channels/${target.channelId}/messages`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bot ${process.env.DISCORD_BOT_TOKEN}`,
+      'Content-Type': 'application/json',
+      'User-Agent': discordUserAgent
+    },
+    body: JSON.stringify({ ...payload, allowed_mentions: { parse: [] } }),
     signal
   });
+  if (!response.ok) throw new Error(`Discord live status create failed with HTTP ${response.status}`);
+  const created = await response.json();
   const previousMessageId = target.messageId;
   target.messageId = created.id;
   if (previousMessageId && previousMessageId !== created.id) {
-    await discordRest.delete(Routes.channelMessage(target.channelId, previousMessageId), { signal }).catch(error => {
+    await fetch(`https://discord.com/api/v10/channels/${target.channelId}/messages/${previousMessageId}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bot ${process.env.DISCORD_BOT_TOKEN}`, 'User-Agent': discordUserAgent },
+      signal
+    }).catch(error => {
       console.error('[Discord] Previous player status message cleanup failed:', error?.message || error);
     });
   }
@@ -454,8 +466,18 @@ async function verifyDiscordApi() {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), apiVerificationTimeoutMs);
   try {
+    const verificationRequest = fetch('https://discord.com/api/v10/users/@me', {
+      headers: {
+        Authorization: `Bot ${process.env.DISCORD_BOT_TOKEN}`,
+        'User-Agent': discordUserAgent
+      },
+      signal: controller.signal
+    }).then(async response => {
+      if (!response.ok) throw new Error(`Discord API verification failed with HTTP ${response.status}`);
+      return response.json();
+    });
     await Promise.race([
-      discordRest.get(Routes.user('@me'), { signal: controller.signal }),
+      verificationRequest,
       new Promise((_, reject) => setTimeout(
         () => reject(new Error(`Discord API verification timed out after ${apiVerificationTimeoutMs}ms`)),
         apiVerificationTimeoutMs
