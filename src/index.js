@@ -1428,12 +1428,16 @@ async function handleGmodEvent(request, response) {
   // Signed GMod telemetry is still the authoritative heartbeat. Direct
   // querying may be preferred for roster values, but it must not hide a
   // healthy bridge signal from the dashboard.
-  const bridgeChanged = updateBridge(event);
+  const heartbeatEvent = directQueryEnabled && eventType === 'status'
+    ? { ...event, players: bridge.players, maxPlayers: bridge.maxPlayers, map: bridge.map, hostname: bridge.hostname }
+    : event;
+  const bridgeChanged = updateBridge(heartbeatEvent);
   const playerCountEvent = eventType === 'player_join' || eventType === 'player_leave';
   if (eventType === 'status') {
-    // Direct querying may supplement telemetry, but a fresh authenticated
-    // GMod heartbeat must still refresh the reusable Discord status embed.
-    queueLiveStatusUpdate();
+    // Direct querying owns roster changes when enabled. Avoid editing the
+    // Discord message for every heartbeat; the poller queues updates only
+    // when player/map data actually changes.
+    if (!directQueryEnabled && bridgeChanged) queueLiveStatusUpdate();
     return response.json({ ok: true, received: 'status', bridgeLive: true, delivered: false, transport: 'telemetry' });
   }
   if (playerCountEvent) queueLiveStatusUpdate();
