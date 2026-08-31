@@ -390,21 +390,8 @@ async function patchStatusMessage(channelId, messageId, payload, signal) {
     scheduleStatusRetry(messageId, waitMs);
     return;
   }
-  try {
-    const current = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages/${messageId}`, {
-      headers: { Authorization: `Bot ${process.env.DISCORD_BOT_TOKEN}` },
-      signal
-    });
-    if (current.ok) {
-      const message = await current.json();
-      if (message.content === payload.content && JSON.stringify(message.embeds || []) === JSON.stringify(payload.embeds || [])) {
-        statusLastContents.set(messageId, payloadKey);
-        return;
-      }
-    }
-  } catch {
-    // Continue to the update attempt; trackedDelivery supplies the timeout.
-  }
+  // The configured message ID is authoritative. Avoid a read-before-write:
+  // it doubles the Discord API traffic and can rate-limit the live updater.
   const response = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages/${messageId}`, {
     method: 'PATCH',
     headers: {
