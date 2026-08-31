@@ -1363,7 +1363,10 @@ async function handleGmodEvent(request, response) {
     return response.json({ ok: true, received: eventType, bridgeLive: true, delivered: false, transport: 'telemetry' });
   }
   if (directQueryEnabled && eventType === 'status') updateBridgePlayerNames(event);
-  const bridgeChanged = directQueryEnabled ? false : updateBridge(event);
+  // Signed GMod telemetry is still the authoritative heartbeat. Direct
+  // querying may be preferred for roster values, but it must not hide a
+  // healthy bridge signal from the dashboard.
+  const bridgeChanged = updateBridge(event);
   const playerCountEvent = eventType === 'player_join' || eventType === 'player_leave';
   if (eventType === 'status') {
     if (bridgeChanged && !directQueryEnabled) queueLiveStatusUpdate();
