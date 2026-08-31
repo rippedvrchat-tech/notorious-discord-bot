@@ -384,7 +384,6 @@ function liveStatusMessagePayload(target, websiteOnline) {
 
 async function patchStatusMessage(channelId, messageId, payload, signal) {
   const payloadKey = JSON.stringify(payload);
-  if (statusLastContents.get(messageId) === payloadKey) return;
   const waitMs = Math.max(0, (statusNextAllowedAt.get(messageId) || 0) - Date.now());
   if (waitMs > 0) {
     scheduleStatusRetry(messageId, waitMs);
