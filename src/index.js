@@ -935,7 +935,9 @@ async function sendCriticalAlert(event, signal) {
 async function sendLiveStatusMessage(signal) {
   if (String(process.env.DISCORD_LIVE_STATUS_ENABLED || 'true').toLowerCase() === 'false') return true;
   if (!discordRest || !discordStatusTargets.length) return false;
-  for (const target of discordStatusTargets.filter(target => validChannelId(target.channelId))) {
+  const websiteStatusEnabled = String(process.env.DISCORD_WEBSITE_STATUS_ENABLED || 'true').toLowerCase() !== 'false';
+  for (const target of discordStatusTargets.filter(target =>
+    validChannelId(target.channelId) && (target.name !== 'website' || websiteStatusEnabled))) {
     const websiteOnline = target.name === 'website' ? await websiteIsOnline(signal) : false;
     const payload = liveStatusMessagePayload(target, websiteOnline);
     if (target.name === 'game') {
