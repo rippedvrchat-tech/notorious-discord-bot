@@ -1369,7 +1369,9 @@ async function handleGmodEvent(request, response) {
   const bridgeChanged = updateBridge(event);
   const playerCountEvent = eventType === 'player_join' || eventType === 'player_leave';
   if (eventType === 'status') {
-    if (bridgeChanged && !directQueryEnabled) queueLiveStatusUpdate();
+    // Direct querying may supplement telemetry, but a fresh authenticated
+    // GMod heartbeat must still refresh the reusable Discord status embed.
+    if (bridgeChanged) queueLiveStatusUpdate();
     return response.json({ ok: true, received: 'status', bridgeLive: true, delivered: false, transport: 'telemetry' });
   }
   if (playerCountEvent) queueLiveStatusUpdate();
