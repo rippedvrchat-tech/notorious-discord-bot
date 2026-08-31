@@ -36,6 +36,8 @@ test('blocks metadata that marks a message as private or staff-only', () => {
     { admin: true },
     { staff: true },
     { isAdmin: true },
+    { userGroup: 'moderator' },
+    { userGroup: 'superadmin' },
     { channel: 'admin_chat' }
   ]) {
     assert.equal(isRelayablePublicChat('looks normal', metadata), false, JSON.stringify(metadata));
