@@ -1058,7 +1058,8 @@ function updateBridge(event) {
     maxPlayers: bridge.maxPlayers,
     round: bridge.round,
     hostname: bridge.hostname,
-    version: bridge.version
+    version: bridge.version,
+    playerNames: bridge.playerNames.join('\n')
   };
   const now = new Date().toISOString();
   bridge.lastSignalAt = now;
@@ -1077,7 +1078,8 @@ function updateBridge(event) {
   }
   return previous.map !== bridge.map || previous.players !== bridge.players ||
     previous.maxPlayers !== bridge.maxPlayers || previous.round !== bridge.round ||
-    previous.hostname !== bridge.hostname || previous.version !== bridge.version;
+    previous.hostname !== bridge.hostname || previous.version !== bridge.version ||
+    previous.playerNames !== bridge.playerNames.join('\n');
 }
 
 function updateBridgePlayerNames(event) {
