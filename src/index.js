@@ -72,6 +72,7 @@ const startedAt = Date.now();
 const bridgeStaleMs = envNumber('GMOD_STALE_MS', 75000, 45000, 3600000);
 const gatewayEnabled = String(process.env.DISCORD_GATEWAY_ENABLED || 'true').toLowerCase() !== 'false';
 const loginRetryMs = envNumber('DISCORD_RETRY_MS', 30000, 15000, 3600000);
+const loginRetryMaxMs = envNumber('DISCORD_RETRY_MAX_MS', 900000, 60000, 3600000);
 const loginTimeoutMs = envNumber('DISCORD_LOGIN_TIMEOUT_MS', 45000, 15000, 120000);
 const deliveryTimeoutMs = envNumber('DISCORD_DELIVERY_TIMEOUT_MS', 15000, 5000, 60000);
 const httpCommandTimeoutMs = envNumber('DISCORD_HTTP_COMMAND_TIMEOUT_MS', 2000, 500, 2500);
@@ -439,11 +440,15 @@ function discordConnectionText() {
   return 'Reconnecting';
 }
 
+let apiVerificationInFlight = false;
 async function verifyDiscordApi() {
+  if (apiVerificationInFlight) return discordHttp.apiVerified;
+  apiVerificationInFlight = true;
   discordHttp.apiLastCheckedAt = new Date().toISOString();
   if (!discordRest) {
     discordHttp.apiVerified = false;
     discordHttp.apiLastError = 'DISCORD_BOT_TOKEN is missing';
+    apiVerificationInFlight = false;
     return false;
   }
   const controller = new AbortController();
@@ -466,6 +471,7 @@ async function verifyDiscordApi() {
     return false;
   } finally {
     clearTimeout(timeout);
+    apiVerificationInFlight = false;
   }
 }
 
@@ -1506,28 +1512,41 @@ client.on('shardDisconnect', (event, id) => console.error(`[Discord] Shard ${id}
 
 let loginInProgress = false;
 let loginRetryTimer = null;
+let nextLoginAttemptAt = 0;
+let currentLoginRetryMs = loginRetryMs;
 async function connectDiscord() {
+  if (!gatewayEnabled || Date.now() < nextLoginAttemptAt) return;
   clearTimeout(loginRetryTimer);
-  if (!gatewayEnabled) return;
+  loginRetryTimer = null;
   if (client.isReady() || loginInProgress) return;
   if (!process.env.DISCORD_BOT_TOKEN) {
     console.error('[Discord] Login skipped because DISCORD_BOT_TOKEN is missing.');
+    nextLoginAttemptAt = Date.now() + loginRetryMs;
     loginRetryTimer = setTimeout(connectDiscord, loginRetryMs);
+    loginRetryTimer.unref?.();
     return;
   }
   loginInProgress = true;
+  const loginPromise = Promise.resolve().then(() => client.login(process.env.DISCORD_BOT_TOKEN));
+  loginPromise.catch(() => {});
   try {
     await Promise.race([
-      client.login(process.env.DISCORD_BOT_TOKEN),
+      loginPromise,
       new Promise((_, reject) => setTimeout(
         () => reject(new Error(`Gateway login timed out after ${loginTimeoutMs}ms`)),
         loginTimeoutMs
       ))
     ]);
+    currentLoginRetryMs = loginRetryMs;
+    nextLoginAttemptAt = 0;
   } catch (error) {
     console.error('[Discord] Login failed:', error?.message || error);
     client.destroy();
-    loginRetryTimer = setTimeout(connectDiscord, loginRetryMs);
+    const delay = Math.min(loginRetryMaxMs, currentLoginRetryMs);
+    currentLoginRetryMs = Math.min(loginRetryMaxMs, Math.max(loginRetryMs, currentLoginRetryMs * 2));
+    nextLoginAttemptAt = Date.now() + delay;
+    loginRetryTimer = setTimeout(connectDiscord, delay);
+    loginRetryTimer.unref?.();
   } finally {
     loginInProgress = false;
   }
