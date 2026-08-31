@@ -388,7 +388,7 @@ async function patchStatusMessage(channelId, messageId, payload, signal) {
   const waitMs = Math.max(0, (statusNextAllowedAt.get(messageId) || 0) - Date.now());
   if (waitMs > 0) {
     scheduleStatusRetry(messageId, waitMs);
-    return;
+    throw new Error(`Discord status update deferred for ${Math.ceil(waitMs / 1000)}s`);
   }
   // The configured message ID is authoritative. Avoid a read-before-write:
   // it doubles the Discord API traffic and can rate-limit the live updater.
@@ -536,15 +536,15 @@ function currentMapName() {
   return clean(bridge.map, 'unknown', 128);
 }
 
-function brandedEmbed({ title, description, color = COLORS.blue, image = ASSETS.identity }) {
+function brandedEmbed({ title, description, color = COLORS.blue, image = ASSETS.identity, timestamp = new Date().toISOString() }) {
   const embed = new EmbedBuilder()
     .setColor(color)
     .setAuthor({ name: 'NOTORIOUS SERVER NETWORK' })
     .setTitle(clean(title, 'Notorious', 256))
     .setDescription(clean(description, 'Live server information.', 4096))
     .setThumbnail(ASSETS.identity)
-    .setFooter({ text: 'Notorious | Pill Pack Hide & Seek' })
-    .setTimestamp();
+    .setFooter({ text: 'Notorious | Pill Pack Hide & Seek' });
+  if (timestamp !== false) embed.setTimestamp(timestamp);
   if (image) embed.setImage(image);
   return embed;
 }
@@ -602,7 +602,8 @@ function playersEmbed() {
       ? `The server currently has **${playerCountText()}** players connected.`
       : 'The GMod signal is stale. The roster below is the last received snapshot.',
     color: live ? COLORS.green : COLORS.amber,
-    image: ASSETS.community
+    image: ASSETS.community,
+    timestamp: false
   }).addFields(
     ...playerFields,
     { name: 'Map', value: markdownSafe(bridge.map, 'unknown'), inline: true },
