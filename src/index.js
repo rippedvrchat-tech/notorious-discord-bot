@@ -898,7 +898,21 @@ async function sendLiveStatusMessage(signal) {
     const websiteOnline = target.name === 'website' ? await websiteIsOnline(signal) : false;
     const payload = liveStatusMessagePayload(target, websiteOnline);
     if (target.name === 'game') {
-      await replaceLivePlayerMessage(target, payload, signal);
+      if (target.messageId) {
+        try {
+          await patchStatusMessage(target.channelId, target.messageId, payload, signal);
+        } catch (error) {
+          if (!String(error?.message || '').includes('HTTP 404')) throw error;
+          target.messageId = null;
+        }
+      }
+      if (!target.messageId) {
+        const created = await discordRest.post(Routes.channelMessages(target.channelId), {
+          body: payload,
+          signal
+        });
+        target.messageId = created.id;
+      }
     } else if (target.messageId) {
       try {
         await patchStatusMessage(target.channelId, target.messageId, payload, signal);
@@ -1371,7 +1385,7 @@ async function handleGmodEvent(request, response) {
   if (eventType === 'status') {
     // Direct querying may supplement telemetry, but a fresh authenticated
     // GMod heartbeat must still refresh the reusable Discord status embed.
-    if (bridgeChanged) queueLiveStatusUpdate();
+    queueLiveStatusUpdate();
     return response.json({ ok: true, received: 'status', bridgeLive: true, delivered: false, transport: 'telemetry' });
   }
   if (playerCountEvent) queueLiveStatusUpdate();
